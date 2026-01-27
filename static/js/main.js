@@ -21,8 +21,18 @@ function formatPercentage(value) {
     return value.toFixed(2) + '%';
 }
 
-// Utility function to format date
+// Utility function to format date to DD/MM/AAAA
 function formatDate(dateString) {
+    // Handle YYYY-MM-DD format
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+        const year = parts[0];
+        const month = parts[1];
+        const day = parts[2];
+        return `${day}/${month}/${year}`;
+    }
+
+    // Fallback to Date parsing
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
