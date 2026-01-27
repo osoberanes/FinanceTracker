@@ -1,0 +1,187 @@
+/* Custom styles for Portfolio Tracker */
+
+:root {
+    --gain-color: #28a745;
+    --loss-color: #dc3545;
+    --neutral-color: #6c757d;
+}
+
+body {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+/* Navbar styling */
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+/* Card styling */
+.card {
+    border: none;
+    border-radius: 8px;
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+.card-header {
+    border-radius: 8px 8px 0 0 !important;
+    font-weight: 600;
+}
+
+/* KPI Cards */
+#kpiCards .card {
+    border-left: 4px solid #007bff;
+}
+
+#kpiCards h4 {
+    font-weight: bold;
+}
+
+/* Table styling */
+.table {
+    margin-bottom: 0;
+}
+
+.table thead th {
+    border-bottom: 2px solid #dee2e6;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.table tbody tr {
+    transition: background-color 0.15s;
+}
+
+.table tbody tr:hover {
+    background-color: #f1f3f5;
+}
+
+/* Gain/Loss styling */
+.gain {
+    color: var(--gain-color);
+    font-weight: 600;
+}
+
+.loss {
+    color: var(--loss-color);
+    font-weight: 600;
+}
+
+.neutral {
+    color: var(--neutral-color);
+}
+
+/* Form styling */
+#transactionForm input:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+#transactionForm button[type="submit"] {
+    font-weight: 600;
+}
+
+/* Alert messages */
+.alert {
+    border-radius: 6px;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading spinner */
+.spinner-border {
+    width: 2rem;
+    height: 2rem;
+}
+
+/* Chart container */
+#portfolioChart {
+    min-height: 400px;
+}
+
+/* Empty state */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #6c757d;
+}
+
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+/* Footer */
+footer {
+    margin-top: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .table {
+        font-size: 0.85rem;
+    }
+
+    #kpiCards .col-md-2 {
+        margin-bottom: 1rem;
+    }
+
+    .navbar-brand {
+        font-size: 1.2rem;
+    }
+}
+
+/* Utility classes */
+.text-gain {
+    color: var(--gain-color) !important;
+}
+
+.text-loss {
+    color: var(--loss-color) !important;
+}
+
+.bg-gain-light {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+}
+
+.bg-loss-light {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+}
+
+/* Animation for new rows */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-row {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* Ticker badge */
+.ticker-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background-color: #007bff;
+    color: white;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
