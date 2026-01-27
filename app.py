@@ -108,8 +108,17 @@ def create_transaction():
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
 
-        # Validate and format ticker
+        # Get market and format ticker
+        market = data.get('market', 'MX').upper()
         ticker = data['ticker'].upper().strip()
+
+        # Remove .MX suffix if user added it
+        ticker = ticker.replace('.MX', '').replace('.US', '')
+
+        # Add appropriate suffix based on market
+        if market == 'MX':
+            ticker = ticker + '.MX'
+        # For US market, no suffix needed
 
         # Validate ticker exists
         if not validate_ticker(ticker):
@@ -140,9 +149,11 @@ def create_transaction():
         db = get_db()
         transaction = Transaction(
             ticker=ticker,
+            market=market,
             purchase_date=purchase_date,
             purchase_price=purchase_price,
-            quantity=quantity
+            quantity=quantity,
+            currency='MXN'
         )
 
         db.add(transaction)
@@ -294,6 +305,158 @@ def get_portfolio_history():
 
     except Exception as e:
         logger.error(f"Error fetching portfolio history: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/transactions/<int:id>', methods=['GET'])
+def get_transaction(id):
+    """
+    Get a specific transaction by ID.
+
+    Args:
+        id: Transaction ID
+
+    Returns:
+        JSON with transaction details
+    """
+    try:
+        db = get_db()
+        transaction = db.query(Transaction).filter(Transaction.id == id).first()
+
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+
+        trans_dict = transaction.to_dict()
+
+        # Format date for frontend
+        trans_dict['purchase_date_formatted'] = transaction.purchase_date.strftime('%d/%m/%Y')
+
+        return jsonify(trans_dict)
+
+    except Exception as e:
+        logger.error(f"Error fetching transaction {id}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/transactions/<int:id>', methods=['PUT'])
+def update_transaction(id):
+    """
+    Update an existing transaction.
+
+    Args:
+        id: Transaction ID
+
+    Expected JSON body:
+        {
+            "ticker": "AAPL",
+            "market": "US",
+            "purchase_date": "2024-01-15",
+            "purchase_price": 150.50,
+            "quantity": 10
+        }
+
+    Returns:
+        JSON with success message or error
+    """
+    try:
+        db = get_db()
+        transaction = db.query(Transaction).filter(Transaction.id == id).first()
+
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+
+        data = request.get_json()
+
+        # Get market and format ticker
+        market = data.get('market', 'MX').upper()
+        ticker = data['ticker'].upper().strip()
+
+        # Remove suffix if user added it
+        ticker = ticker.replace('.MX', '').replace('.US', '')
+
+        # Add appropriate suffix
+        if market == 'MX':
+            ticker = ticker + '.MX'
+
+        # Validate ticker
+        if not validate_ticker(ticker):
+            return jsonify({'error': f'Invalid ticker: {ticker}. Ticker not found in Yahoo Finance.'}), 400
+
+        # Validate date
+        try:
+            purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
+            if purchase_date > datetime.now().date():
+                return jsonify({'error': 'Purchase date cannot be in the future'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+        # Validate numeric values
+        try:
+            purchase_price = float(data['purchase_price'])
+            quantity = float(data['quantity'])
+
+            if purchase_price <= 0:
+                return jsonify({'error': 'Purchase price must be greater than 0'}), 400
+            if quantity <= 0:
+                return jsonify({'error': 'Quantity must be greater than 0'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid numeric values'}), 400
+
+        # Update transaction fields
+        transaction.ticker = ticker
+        transaction.market = market
+        transaction.purchase_date = purchase_date
+        transaction.purchase_price = purchase_price
+        transaction.quantity = quantity
+        transaction.currency = 'MXN'
+        transaction.updated_at = datetime.now()
+
+        db.commit()
+
+        logger.info(f"Transaction {id} updated: {ticker} - {quantity} shares at ${purchase_price}")
+
+        return jsonify({
+            'message': 'Transaction updated successfully',
+            'transaction': transaction.to_dict()
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating transaction {id}: {str(e)}")
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/transactions/<int:id>', methods=['DELETE'])
+def delete_transaction(id):
+    """
+    Delete a transaction.
+
+    Args:
+        id: Transaction ID
+
+    Returns:
+        JSON with success message or error
+    """
+    try:
+        db = get_db()
+        transaction = db.query(Transaction).filter(Transaction.id == id).first()
+
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+
+        ticker = transaction.ticker
+        quantity = transaction.quantity
+
+        db.delete(transaction)
+        db.commit()
+
+        logger.info(f"Transaction {id} deleted: {ticker} - {quantity} shares")
+
+        return jsonify({'message': 'Transaction deleted successfully'})
+
+    except Exception as e:
+        logger.error(f"Error deleting transaction {id}: {str(e)}")
+        db.rollback()
         return jsonify({'error': str(e)}), 500
 
 

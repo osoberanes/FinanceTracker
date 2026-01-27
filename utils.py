@@ -13,19 +13,109 @@ logger = logging.getLogger(__name__)
 # Cache for storing prices during session
 price_cache = {}
 historical_cache = {}
+exchange_rate_cache = {}  # Cache for USD/MXN exchange rates
+
+
+def get_usd_mxn_rate(date: str = None) -> float:
+    """
+    Get USD/MXN exchange rate for a specific date or current rate.
+    Uses Yahoo Finance ticker USDMXN=X
+
+    Args:
+        date: Date in 'YYYY-MM-DD' format. If None, gets current rate.
+
+    Returns:
+        Exchange rate (float). Returns 20.0 as fallback if data unavailable.
+    """
+    # Use current date if none specified
+    if date is None:
+        date = datetime.now().strftime('%Y-%m-%d')
+
+    cache_key = f"USDMXN_{date}"
+
+    # Check cache
+    if cache_key in exchange_rate_cache:
+        return exchange_rate_cache[cache_key]
+
+    try:
+        ticker = yf.Ticker("USDMXN=X")
+
+        # If requesting current rate
+        if date == datetime.now().strftime('%Y-%m-%d'):
+            try:
+                rate = ticker.fast_info.get('lastPrice')
+                if rate and rate > 0:
+                    exchange_rate_cache[cache_key] = float(rate)
+                    return float(rate)
+            except Exception:
+                pass
+
+        # Get historical rate
+        # Add buffer days to handle weekends/holidays
+        date_obj = datetime.strptime(date, '%Y-%m-%d')
+        start_date = (date_obj - timedelta(days=7)).strftime('%Y-%m-%d')
+        end_date = (date_obj + timedelta(days=1)).strftime('%Y-%m-%d')
+
+        data = ticker.history(start=start_date, end=end_date)
+
+        if not data.empty:
+            # Get the closest date
+            data.index = pd.to_datetime(data.index).date
+            target_date = date_obj.date()
+
+            # Try exact date first
+            if target_date in data.index:
+                rate = data.loc[target_date, 'Close']
+            else:
+                # Get closest previous date
+                valid_dates = [d for d in data.index if d <= target_date]
+                if valid_dates:
+                    closest_date = max(valid_dates)
+                    rate = data.loc[closest_date, 'Close']
+                else:
+                    # If no previous date, get the first available
+                    rate = data['Close'].iloc[0]
+
+            rate = float(rate)
+            exchange_rate_cache[cache_key] = rate
+            logger.info(f"Exchange rate for {date}: {rate}")
+            return rate
+        else:
+            logger.warning(f"No exchange rate data for {date}, using fallback rate 20.0")
+            return 20.0
+
+    except Exception as e:
+        logger.error(f"Error fetching exchange rate for {date}: {str(e)}")
+        # Return a reasonable fallback rate
+        return 20.0
+
+
+def format_date_mx(date_obj) -> str:
+    """Format date to DD/MM/AAAA"""
+    if isinstance(date_obj, str):
+        date_obj = datetime.strptime(date_obj, '%Y-%m-%d')
+    return date_obj.strftime('%d/%m/%Y')
+
+
+def parse_date_mx(date_str: str) -> datetime:
+    """Parse date from DD/MM/AAAA"""
+    return datetime.strptime(date_str, '%d/%m/%Y')
 
 
 def get_current_price(ticker: str) -> Optional[float]:
     """
-    Get current price from Yahoo Finance.
+    Get current price from Yahoo Finance, converted to MXN.
+
+    Mexican tickers (ending in .MX) are already in MXN.
+    US tickers are converted from USD to MXN using current exchange rate.
 
     Args:
         ticker: Stock ticker symbol
 
     Returns:
-        Current price or None if error
+        Current price in MXN or None if error
     """
-    cache_key = f"{ticker}_current"
+    cache_key = f"{ticker}_current_mxn"
 
     # Check cache (valid for 5 minutes)
     if cache_key in price_cache:
@@ -35,25 +125,36 @@ def get_current_price(ticker: str) -> Optional[float]:
 
     try:
         stock = yf.Ticker(ticker)
+        price_usd = None
 
         # Try fast_info first (faster and more reliable in yfinance 1.1.0+)
         try:
             current_price = stock.fast_info.get('lastPrice')
             if current_price and current_price > 0:
-                price_cache[cache_key] = (datetime.now(), current_price)
-                return float(current_price)
+                price_usd = float(current_price)
         except Exception:
             pass
 
         # Fallback to history
-        data = stock.history(period='1d')
-        if data.empty:
-            logger.warning(f"No data returned for ticker: {ticker}")
-            return None
+        if price_usd is None:
+            data = stock.history(period='1d')
+            if data.empty:
+                logger.warning(f"No data returned for ticker: {ticker}")
+                return None
+            price_usd = float(data['Close'].iloc[-1])
 
-        current_price = data['Close'].iloc[-1]
-        price_cache[cache_key] = (datetime.now(), current_price)
-        return float(current_price)
+        # Convert to MXN if needed
+        if ticker.endswith('.MX'):
+            # Already in MXN
+            price_mxn = price_usd
+        else:
+            # Convert USD to MXN
+            exchange_rate = get_usd_mxn_rate()
+            price_mxn = price_usd * exchange_rate
+            logger.debug(f"{ticker}: ${price_usd} USD * {exchange_rate} = ${price_mxn} MXN")
+
+        price_cache[cache_key] = (datetime.now(), price_mxn)
+        return price_mxn
 
     except Exception as e:
         logger.error(f"Error fetching current price for {ticker}: {str(e)}")
@@ -62,7 +163,10 @@ def get_current_price(ticker: str) -> Optional[float]:
 
 def get_historical_prices(ticker: str, start_date: str, end_date: str = None) -> pd.DataFrame:
     """
-    Get historical prices from Yahoo Finance.
+    Get historical prices from Yahoo Finance, converted to MXN.
+
+    Mexican tickers (ending in .MX) are already in MXN.
+    US tickers are converted from USD to MXN using historical exchange rates.
 
     Args:
         ticker: Stock ticker symbol
@@ -70,12 +174,12 @@ def get_historical_prices(ticker: str, start_date: str, end_date: str = None) ->
         end_date: End date in 'YYYY-MM-DD' format (default: today)
 
     Returns:
-        DataFrame with historical prices or empty DataFrame if error
+        DataFrame with historical prices in MXN or empty DataFrame if error
     """
     if end_date is None:
         end_date = datetime.now().strftime('%Y-%m-%d')
 
-    cache_key = f"{ticker}_{start_date}_{end_date}"
+    cache_key = f"{ticker}_{start_date}_{end_date}_mxn"
 
     # Check cache
     if cache_key in historical_cache:
@@ -88,6 +192,35 @@ def get_historical_prices(ticker: str, start_date: str, end_date: str = None) ->
         if data.empty:
             logger.warning(f"No historical data for {ticker} from {start_date} to {end_date}")
             return pd.DataFrame()
+
+        # Convert to MXN if needed
+        if not ticker.endswith('.MX'):
+            # US ticker - need to convert each date's price to MXN
+            logger.info(f"Converting {ticker} historical prices from USD to MXN")
+
+            # Get exchange rates for the date range
+            exchange_ticker = yf.Ticker("USDMXN=X")
+            exchange_data = exchange_ticker.history(start=start_date, end=end_date)
+
+            if not exchange_data.empty:
+                # Align dates and forward fill for missing exchange rate dates
+                data['ExchangeRate'] = exchange_data['Close']
+                data['ExchangeRate'] = data['ExchangeRate'].fillna(method='ffill').fillna(method='bfill')
+
+                # Convert all price columns to MXN
+                for col in ['Open', 'High', 'Low', 'Close']:
+                    if col in data.columns:
+                        data[col] = data[col] * data['ExchangeRate']
+
+                # Remove the exchange rate column
+                data = data.drop(columns=['ExchangeRate'])
+            else:
+                logger.warning(f"No exchange rate data available for {start_date} to {end_date}, using fallback")
+                # Use fallback rate
+                fallback_rate = 20.0
+                for col in ['Open', 'High', 'Low', 'Close']:
+                    if col in data.columns:
+                        data[col] = data[col] * fallback_rate
 
         historical_cache[cache_key] = data
         return data
@@ -229,8 +362,8 @@ def calculate_weighted_average_price(transactions: List[Dict]) -> float:
 
 
 def format_currency(value: float) -> str:
-    """Format value as currency."""
-    return f"${value:,.2f}"
+    """Format value as MXN currency."""
+    return f"${value:,.2f} MXN"
 
 
 def format_percentage(value: float) -> str:

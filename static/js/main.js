@@ -1,13 +1,13 @@
 // Main JavaScript for Portfolio Tracker
 
-// Utility function to format currency
+// Utility function to format currency in MXN
 function formatCurrency(value) {
     if (value === null || value === undefined) {
         return 'N/A';
     }
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('es-MX', {
         style: 'currency',
-        currency: 'USD',
+        currency: 'MXN',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
     }).format(value);
@@ -69,19 +69,51 @@ document.addEventListener('DOMContentLoaded', function() {
     const today = new Date().toISOString().split('T')[0];
     dateInput.setAttribute('max', today);
     dateInput.value = today;
+
+    // Market selector change handler
+    const marketSelect = document.getElementById('market');
+    if (marketSelect) {
+        marketSelect.addEventListener('change', function() {
+            const tickerInput = document.getElementById('ticker');
+            const tickerHint = document.getElementById('ticker-hint');
+
+            if (this.value === 'MX') {
+                tickerInput.placeholder = 'Ej: FUNO11, DANHOS13';
+                tickerHint.textContent = 'Sin .MX (se agrega automáticamente)';
+            } else {
+                tickerInput.placeholder = 'Ej: AAPL, MSFT';
+                tickerHint.textContent = 'Ingresa el ticker sin sufijo';
+            }
+        });
+    }
+
+    // Edit modal market selector change handler
+    const editMarketSelect = document.getElementById('edit-market');
+    if (editMarketSelect) {
+        editMarketSelect.addEventListener('change', function() {
+            const editTickerHint = document.getElementById('edit-ticker-hint');
+
+            if (this.value === 'MX') {
+                editTickerHint.textContent = 'Sin .MX (se agrega automáticamente)';
+            } else {
+                editTickerHint.textContent = 'Ingresa el ticker sin sufijo';
+            }
+        });
+    }
 });
 
 // Handle form submission
 document.getElementById('transactionForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
+    const market = document.getElementById('market').value;
     const ticker = document.getElementById('ticker').value.toUpperCase().trim();
     const purchaseDate = document.getElementById('purchase_date').value;
     const purchasePrice = parseFloat(document.getElementById('purchase_price').value);
     const quantity = parseFloat(document.getElementById('quantity').value);
 
     // Basic validation
-    if (!ticker || !purchaseDate || !purchasePrice || !quantity) {
+    if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
         showMessage('Por favor completa todos los campos', 'error');
         return;
     }
@@ -99,6 +131,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                market: market,
                 ticker: ticker,
                 purchase_date: purchaseDate,
                 purchase_price: purchasePrice,
@@ -113,6 +146,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
 
             // Reset form
             e.target.reset();
+            document.getElementById('market').value = 'MX';
             document.getElementById('purchase_date').value = new Date().toISOString().split('T')[0];
 
             // Reload data
@@ -167,6 +201,14 @@ async function loadTransactions() {
                     </td>
                     <td class="text-end ${gainLossClass}">
                         ${trans.gain_loss_percent !== null ? formatPercentage(trans.gain_loss_percent) : 'N/A'}
+                    </td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-warning me-1" onclick="editTransaction(${trans.id})" title="Editar">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteTransaction(${trans.id})" title="Eliminar">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </td>
                 </tr>
             `;
@@ -323,7 +365,7 @@ async function loadPortfolioChart() {
                 gridcolor: '#e9ecef'
             },
             yaxis: {
-                title: 'Valor Total (USD)',
+                title: 'Valor Total (MXN)',
                 tickformat: '$,.0f',
                 showgrid: true,
                 gridcolor: '#e9ecef'
@@ -358,6 +400,152 @@ function loadAllData() {
     loadTransactions();
     loadPositions();
     loadPortfolioChart();
+}
+
+// CRUD Operations - Edit and Delete
+
+let transactionToDelete = null;
+
+// Open edit modal
+async function editTransaction(id) {
+    try {
+        const response = await fetch(`/api/transactions/${id}`);
+        const transaction = await response.json();
+
+        // Fill form with transaction data
+        document.getElementById('edit-id').value = transaction.id;
+
+        // Set market
+        const market = transaction.market || 'MX';
+        document.getElementById('edit-market').value = market;
+
+        // Remove .MX suffix for display
+        let displayTicker = transaction.ticker.replace('.MX', '');
+        document.getElementById('edit-ticker').value = displayTicker;
+
+        document.getElementById('edit-date').value = transaction.purchase_date;
+        document.getElementById('edit-price').value = transaction.purchase_price;
+        document.getElementById('edit-quantity').value = transaction.quantity;
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('editModal'));
+        modal.show();
+    } catch (error) {
+        console.error('Error loading transaction:', error);
+        showMessage('Error al cargar la transacción: ' + error.message, 'error');
+    }
+}
+
+// Save edited transaction
+async function saveEdit() {
+    const id = document.getElementById('edit-id').value;
+    const market = document.getElementById('edit-market').value;
+    const ticker = document.getElementById('edit-ticker').value.trim().toUpperCase();
+    const purchaseDate = document.getElementById('edit-date').value;
+    const purchasePrice = parseFloat(document.getElementById('edit-price').value);
+    const quantity = parseFloat(document.getElementById('edit-quantity').value);
+
+    // Validation
+    if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
+        showMessage('Por favor completa todos los campos', 'error');
+        return;
+    }
+
+    if (purchasePrice <= 0 || quantity <= 0) {
+        showMessage('El precio y cantidad deben ser mayores a 0', 'error');
+        return;
+    }
+
+    const data = {
+        market: market,
+        ticker: ticker,
+        purchase_date: purchaseDate,
+        purchase_price: purchasePrice,
+        quantity: quantity
+    };
+
+    try {
+        const response = await fetch(`/api/transactions/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+            modal.hide();
+
+            showMessage('Transacción actualizada exitosamente', 'success');
+
+            // Reload data
+            loadAllData();
+        } else {
+            showMessage(result.error || 'Error al actualizar', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving transaction:', error);
+        showMessage('Error al guardar: ' + error.message, 'error');
+    }
+}
+
+// Open delete confirmation modal
+async function deleteTransaction(id) {
+    try {
+        const response = await fetch(`/api/transactions/${id}`);
+        const transaction = await response.json();
+
+        transactionToDelete = id;
+
+        // Show transaction details
+        document.getElementById('delete-details').innerHTML = `
+            <strong>Ticker:</strong> ${transaction.ticker}<br>
+            <strong>Fecha:</strong> ${formatDate(transaction.purchase_date)}<br>
+            <strong>Cantidad:</strong> ${transaction.quantity.toFixed(4)}<br>
+            <strong>Precio:</strong> ${formatCurrency(transaction.purchase_price)}
+        `;
+
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+        modal.show();
+    } catch (error) {
+        console.error('Error loading transaction:', error);
+        showMessage('Error al cargar la transacción: ' + error.message, 'error');
+    }
+}
+
+// Confirm and execute deletion
+async function confirmDelete() {
+    if (!transactionToDelete) return;
+
+    try {
+        const response = await fetch(`/api/transactions/${transactionToDelete}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
+            modal.hide();
+
+            showMessage('Transacción eliminada exitosamente', 'success');
+
+            // Clear the ID
+            transactionToDelete = null;
+
+            // Reload data
+            loadAllData();
+        } else {
+            showMessage(result.error || 'Error al eliminar', 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting transaction:', error);
+        showMessage('Error al eliminar: ' + error.message, 'error');
+    }
 }
 
 // Initial load

@@ -14,10 +14,11 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     asset_type = Column(String, nullable=False, default='stock')  # Future: 'stock', 'crypto', 'cete', 'bond'
     ticker = Column(String, nullable=False)
+    market = Column(String, default='MX')  # 'MX' for Mexico (BMV), 'US' for United States
     purchase_date = Column(Date, nullable=False)
     purchase_price = Column(Float, nullable=False)
     quantity = Column(Float, nullable=False)
-    currency = Column(String, default='USD')  # Future: 'USD', 'MXN'
+    currency = Column(String, default='MXN')  # All prices stored in MXN
     custodian = Column(String)  # Future: 'GBM', 'Binance', etc.
     commission = Column(Float, default=0.0)  # Future
     notes = Column(Text)  # Future
@@ -30,6 +31,7 @@ class Transaction(Base):
             'id': self.id,
             'asset_type': self.asset_type,
             'ticker': self.ticker,
+            'market': self.market,
             'purchase_date': self.purchase_date.strftime('%Y-%m-%d') if self.purchase_date else None,
             'purchase_price': self.purchase_price,
             'quantity': self.quantity,
