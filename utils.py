@@ -35,8 +35,18 @@ def get_current_price(ticker: str) -> Optional[float]:
 
     try:
         stock = yf.Ticker(ticker)
-        data = stock.history(period='1d')
 
+        # Try fast_info first (faster and more reliable in yfinance 1.1.0+)
+        try:
+            current_price = stock.fast_info.get('lastPrice')
+            if current_price and current_price > 0:
+                price_cache[cache_key] = (datetime.now(), current_price)
+                return float(current_price)
+        except Exception:
+            pass
+
+        # Fallback to history
+        data = stock.history(period='1d')
         if data.empty:
             logger.warning(f"No data returned for ticker: {ticker}")
             return None
@@ -99,13 +109,22 @@ def validate_ticker(ticker: str) -> bool:
     """
     try:
         stock = yf.Ticker(ticker)
-        info = stock.info
 
-        # Check if we got valid data
-        if not info or 'symbol' not in info:
-            return False
+        # Try to get recent history - most reliable method
+        data = stock.history(period='5d')
+        if not data.empty and len(data) > 0:
+            return True
 
-        return True
+        # Try fast_info as fallback
+        try:
+            last_price = stock.fast_info.get('lastPrice')
+            if last_price and last_price > 0:
+                return True
+        except Exception:
+            pass
+
+        # If no price data available, ticker is invalid or delisted
+        return False
 
     except Exception as e:
         logger.error(f"Error validating ticker {ticker}: {str(e)}")
