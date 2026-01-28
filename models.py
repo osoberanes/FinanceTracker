@@ -1,10 +1,41 @@
 """SQLAlchemy models for the portfolio tracker."""
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
 Base = declarative_base()
+
+
+class Custodian(Base):
+    """Model for custodians (brokers, banks, exchanges)."""
+
+    __tablename__ = 'custodians'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    type = Column(String(50))  # 'broker', 'bank', 'crypto_exchange', 'government', 'other'
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship with transactions
+    transactions = relationship('Transaction', backref='custodian_obj', lazy=True)
+
+    def __repr__(self):
+        return f'<Custodian {self.name}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'type': self.type,
+            'is_active': self.is_active,
+            'notes': self.notes,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None
+        }
+
 
 class Transaction(Base):
     """Model for stock transactions."""
@@ -19,7 +50,8 @@ class Transaction(Base):
     purchase_price = Column(Float, nullable=False)
     quantity = Column(Float, nullable=False)
     currency = Column(String, default='MXN')  # All prices stored in MXN
-    custodian = Column(String)  # Future: 'GBM', 'Binance', etc.
+    custodian_id = Column(Integer, ForeignKey('custodians.id'), nullable=True)  # Foreign key to custodians table
+    custodian = Column(String)  # Legacy field - kept for backwards compatibility
     commission = Column(Float, default=0.0)  # Future
     notes = Column(Text)  # Future
     created_at = Column(DateTime, default=datetime.utcnow)

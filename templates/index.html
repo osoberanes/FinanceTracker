@@ -43,9 +43,21 @@
                                 <input type="number" class="form-control" id="quantity" step="0.01" min="0.01" required
                                        placeholder="0.00">
                             </div>
-                            <div class="col-md-2 d-flex align-items-end">
-                                <button type="submit" class="btn btn-success w-100">
-                                    <i class="bi bi-check-circle"></i> Agregar
+                            <div class="col-md-2">
+                                <label for="custodian" class="form-label">Custodio</label>
+                                <select class="form-select" id="custodian" name="custodian_id">
+                                    <option value="">Sin asignar</option>
+                                    <!-- Se llena dinámicamente con JavaScript -->
+                                </select>
+                                <small class="form-text text-muted">
+                                    <a href="/settings">Gestionar custodios</a>
+                                </small>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-2">
+                            <div class="col-md-12">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="bi bi-check-circle"></i> Agregar Transacción
                                 </button>
                             </div>
                         </div>
@@ -122,6 +134,102 @@
                                 <span class="visually-hidden">Cargando...</span>
                             </div>
                             <p class="mt-2">Cargando datos del gráfico...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pie Charts: Composition -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-pie-chart-fill"></i> Composición por Ticker</h5>
+                </div>
+                <div class="card-body">
+                    <div id="ticker-pie-chart" style="height:350px;">
+                        <div class="text-center text-muted py-5">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Cargando...</span>
+                            </div>
+                            <p class="mt-2">Cargando gráfico...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-bank"></i> Composición por Custodio</h5>
+                </div>
+                <div class="card-body">
+                    <div id="custodian-pie-chart" style="height:350px;">
+                        <div class="text-center text-muted py-5">
+                            <div class="spinner-border spinner-border-sm" role="status">
+                                <span class="visually-hidden">Cargando...</span>
+                            </div>
+                            <p class="mt-2">Cargando gráfico...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Performance Table -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="bi bi-trophy"></i> Top Performance</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-success"><i class="bi bi-arrow-up-circle"></i> Mejores Ganancias</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Ticker</th>
+                                            <th class="text-end">Ganancia</th>
+                                            <th class="text-end">%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="top-gainers">
+                                        <tr>
+                                            <td colspan="3" class="text-center text-muted">
+                                                <small>Cargando...</small>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-danger"><i class="bi bi-arrow-down-circle"></i> Mayores Pérdidas</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Ticker</th>
+                                            <th class="text-end">Pérdida</th>
+                                            <th class="text-end">%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="top-losers">
+                                        <tr>
+                                            <td colspan="3" class="text-center text-muted">
+                                                <small>Cargando...</small>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -253,6 +361,14 @@
                         <div class="mb-3">
                             <label for="edit-quantity" class="form-label">Cantidad</label>
                             <input type="number" step="0.01" min="0.01" class="form-control" id="edit-quantity" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="edit-custodian" class="form-label">Custodio</label>
+                            <select class="form-select" id="edit-custodian" name="custodian_id">
+                                <option value="">Sin asignar</option>
+                                <!-- Se llena dinámicamente con JavaScript -->
+                            </select>
                         </div>
                     </form>
                 </div>

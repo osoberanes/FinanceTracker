@@ -80,6 +80,9 @@ document.addEventListener('DOMContentLoaded', function() {
     dateInput.setAttribute('max', today);
     dateInput.value = today;
 
+    // Load custodians dropdown
+    loadCustodiansDropdown();
+
     // Market selector change handler
     const marketSelect = document.getElementById('market');
     if (marketSelect) {
@@ -121,6 +124,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
     const purchaseDate = document.getElementById('purchase_date').value;
     const purchasePrice = parseFloat(document.getElementById('purchase_price').value);
     const quantity = parseFloat(document.getElementById('quantity').value);
+    const custodianId = document.getElementById('custodian').value;
 
     // Basic validation
     if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
@@ -135,18 +139,25 @@ document.getElementById('transactionForm').addEventListener('submit', async func
     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Guardando...';
 
     try {
+        const requestBody = {
+            market: market,
+            ticker: ticker,
+            purchase_date: purchaseDate,
+            purchase_price: purchasePrice,
+            quantity: quantity
+        };
+
+        // Add custodian_id if selected
+        if (custodianId) {
+            requestBody.custodian_id = parseInt(custodianId);
+        }
+
         const response = await fetch('/api/transactions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                market: market,
-                ticker: ticker,
-                purchase_date: purchaseDate,
-                purchase_price: purchasePrice,
-                quantity: quantity
-            })
+            body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
@@ -410,6 +421,9 @@ function loadAllData() {
     loadTransactions();
     loadPositions();
     loadPortfolioChart();
+    loadTickerPieChart();
+    loadCustodianPieChart();
+    loadPerformanceTable();
 }
 
 // CRUD Operations - Edit and Delete
@@ -437,6 +451,14 @@ async function editTransaction(id) {
         document.getElementById('edit-price').value = transaction.purchase_price;
         document.getElementById('edit-quantity').value = transaction.quantity;
 
+        // Set custodian
+        const editCustodianSelect = document.getElementById('edit-custodian');
+        if (editCustodianSelect && transaction.custodian_id) {
+            editCustodianSelect.value = transaction.custodian_id;
+        } else if (editCustodianSelect) {
+            editCustodianSelect.value = '';
+        }
+
         // Show modal
         const modal = new bootstrap.Modal(document.getElementById('editModal'));
         modal.show();
@@ -454,6 +476,7 @@ async function saveEdit() {
     const purchaseDate = document.getElementById('edit-date').value;
     const purchasePrice = parseFloat(document.getElementById('edit-price').value);
     const quantity = parseFloat(document.getElementById('edit-quantity').value);
+    const custodianId = document.getElementById('edit-custodian')?.value;
 
     // Validation
     if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
@@ -473,6 +496,11 @@ async function saveEdit() {
         purchase_price: purchasePrice,
         quantity: quantity
     };
+
+    // Add custodian_id if selected
+    if (custodianId) {
+        data.custodian_id = parseInt(custodianId);
+    }
 
     try {
         const response = await fetch(`/api/transactions/${id}`, {
@@ -555,6 +583,204 @@ async function confirmDelete() {
     } catch (error) {
         console.error('Error deleting transaction:', error);
         showMessage('Error al eliminar: ' + error.message, 'error');
+    }
+}
+
+// Load custodians for dropdown
+async function loadCustodiansDropdown() {
+    try {
+        const response = await fetch('/api/custodians');
+        const custodians = await response.json();
+
+        // Fill dropdown in main form
+        const select = document.getElementById('custodian');
+        if (select) {
+            // Clear existing options except first (Sin asignar)
+            select.innerHTML = '<option value="">Sin asignar</option>';
+
+            custodians.forEach(custodian => {
+                const option = document.createElement('option');
+                option.value = custodian.id;
+                option.textContent = custodian.name;
+                select.appendChild(option);
+            });
+        }
+
+        // Fill dropdown in edit modal
+        const editSelect = document.getElementById('edit-custodian');
+        if (editSelect) {
+            editSelect.innerHTML = '<option value="">Sin asignar</option>';
+
+            custodians.forEach(custodian => {
+                const option = document.createElement('option');
+                option.value = custodian.id;
+                option.textContent = custodian.name;
+                editSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading custodians:', error);
+    }
+}
+
+// Load pie chart for ticker composition
+async function loadTickerPieChart() {
+    try {
+        const response = await fetch('/api/portfolio/summary');
+        const data = await response.json();
+
+        const chartDiv = document.getElementById('ticker-pie-chart');
+
+        if (!data.positions || data.positions.length === 0) {
+            chartDiv.innerHTML = '<p class="text-muted text-center py-5">Sin datos para mostrar</p>';
+            return;
+        }
+
+        const tickers = data.positions.map(item => item.ticker);
+        const values = data.positions.map(item => item.current_value || 0);
+
+        const pieData = [{
+            values: values,
+            labels: tickers,
+            type: 'pie',
+            hole: 0.4,
+            textinfo: 'label+percent',
+            textposition: 'outside',
+            automargin: true,
+            marker: {
+                colors: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8',
+                         '#6f42c1', '#fd7e14', '#20c997', '#e83e8c', '#6c757d']
+            }
+        }];
+
+        const layout = {
+            showlegend: true,
+            legend: {
+                orientation: 'h',
+                x: 0,
+                y: -0.2
+            },
+            margin: { t: 20, b: 20, l: 20, r: 20 },
+            height: 350
+        };
+
+        Plotly.newPlot('ticker-pie-chart', pieData, layout, { responsive: true });
+    } catch (error) {
+        console.error('Error loading ticker pie chart:', error);
+        document.getElementById('ticker-pie-chart').innerHTML =
+            '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
+    }
+}
+
+// Load pie chart for custodian composition
+async function loadCustodianPieChart() {
+    try {
+        const response = await fetch('/api/portfolio/by-custodian');
+        const data = await response.json();
+
+        const chartDiv = document.getElementById('custodian-pie-chart');
+
+        if (!data || data.length === 0) {
+            chartDiv.innerHTML = '<p class="text-muted text-center py-5">Sin datos de custodios</p>';
+            return;
+        }
+
+        const custodians = data.map(item => item.custodian || 'Sin asignar');
+        const values = data.map(item => item.current_value || 0);
+
+        const pieData = [{
+            values: values,
+            labels: custodians,
+            type: 'pie',
+            hole: 0.4,
+            textinfo: 'label+percent',
+            textposition: 'outside',
+            automargin: true,
+            marker: {
+                colors: ['#6f42c1', '#007bff', '#28a745', '#ffc107', '#dc3545',
+                         '#17a2b8', '#fd7e14', '#20c997', '#e83e8c', '#6c757d']
+            }
+        }];
+
+        const layout = {
+            showlegend: true,
+            legend: {
+                orientation: 'h',
+                x: 0,
+                y: -0.2
+            },
+            margin: { t: 20, b: 20, l: 20, r: 20 },
+            height: 350
+        };
+
+        Plotly.newPlot('custodian-pie-chart', pieData, layout, { responsive: true });
+    } catch (error) {
+        console.error('Error loading custodian pie chart:', error);
+        document.getElementById('custodian-pie-chart').innerHTML =
+            '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
+    }
+}
+
+// Load performance table (top gainers and losers)
+async function loadPerformanceTable() {
+    try {
+        const response = await fetch('/api/portfolio/summary');
+        const data = await response.json();
+
+        if (!data.positions || data.positions.length === 0) {
+            document.getElementById('top-gainers').innerHTML =
+                '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+            document.getElementById('top-losers').innerHTML =
+                '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+            return;
+        }
+
+        // Filter positions with valid gain/loss data
+        const validPositions = data.positions.filter(item =>
+            item.gain_loss_percent !== null && item.gain_loss_percent !== undefined
+        );
+
+        if (validPositions.length === 0) {
+            document.getElementById('top-gainers').innerHTML =
+                '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+            document.getElementById('top-losers').innerHTML =
+                '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+            return;
+        }
+
+        // Sort by gain/loss percentage
+        const sorted = [...validPositions].sort((a, b) => b.gain_loss_percent - a.gain_loss_percent);
+
+        // Top 5 gainers
+        const gainers = sorted.slice(0, 5);
+        const gainersHtml = gainers.map(item => `
+            <tr>
+                <td><strong>${item.ticker}</strong></td>
+                <td class="text-end text-success">${formatCurrency(item.gain_loss_dollar)}</td>
+                <td class="text-end text-success"><strong>${formatPercentage(item.gain_loss_percent)}</strong></td>
+            </tr>
+        `).join('');
+        document.getElementById('top-gainers').innerHTML = gainersHtml ||
+            '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+
+        // Top 5 losers (reverse order)
+        const losers = sorted.slice(-5).reverse();
+        const losersHtml = losers.map(item => `
+            <tr>
+                <td><strong>${item.ticker}</strong></td>
+                <td class="text-end text-danger">${formatCurrency(item.gain_loss_dollar)}</td>
+                <td class="text-end text-danger"><strong>${formatPercentage(item.gain_loss_percent)}</strong></td>
+            </tr>
+        `).join('');
+        document.getElementById('top-losers').innerHTML = losersHtml ||
+            '<tr><td colspan="3" class="text-center text-muted">Sin datos</td></tr>';
+
+    } catch (error) {
+        console.error('Error loading performance table:', error);
+        document.getElementById('top-gainers').innerHTML =
+            '<tr><td colspan="3" class="text-center text-danger">Error al cargar</td></tr>';
+        document.getElementById('top-losers').innerHTML =
+            '<tr><td colspan="3" class="text-center text-danger">Error al cargar</td></tr>';
     }
 }
 

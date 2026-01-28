@@ -2,7 +2,7 @@
 
 from flask import Flask, render_template, request, jsonify
 from database import init_db, get_db, close_db
-from models import Transaction
+from models import Transaction, Custodian
 from utils import (
     get_current_price,
     validate_ticker,
@@ -153,7 +153,8 @@ def create_transaction():
             purchase_date=purchase_date,
             purchase_price=purchase_price,
             quantity=quantity,
-            currency='MXN'
+            currency='MXN',
+            custodian_id=data.get('custodian_id')
         )
 
         db.add(transaction)
@@ -409,6 +410,7 @@ def update_transaction(id):
         transaction.purchase_price = purchase_price
         transaction.quantity = quantity
         transaction.currency = 'MXN'
+        transaction.custodian_id = data.get('custodian_id')
         transaction.updated_at = datetime.now()
 
         db.commit()
@@ -457,6 +459,180 @@ def delete_transaction(id):
     except Exception as e:
         logger.error(f"Error deleting transaction {id}: {str(e)}")
         db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# RUTAS DE AJUSTES
+# ============================================
+
+@app.route('/settings')
+def settings():
+    """Página de configuración"""
+    return render_template('settings.html')
+
+
+# ============================================
+# API DE CUSTODIOS
+# ============================================
+
+@app.route('/api/custodians', methods=['GET'])
+def get_custodians():
+    """Obtener todos los custodios activos"""
+    try:
+        db = get_db()
+        custodians = db.query(Custodian).filter_by(is_active=True).order_by(Custodian.name).all()
+        return jsonify([c.to_dict() for c in custodians])
+    except Exception as e:
+        logger.error(f"Error fetching custodians: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/custodians', methods=['POST'])
+def create_custodian():
+    """Crear nuevo custodio"""
+    try:
+        db = get_db()
+        data = request.get_json()
+
+        # Validar que no exista
+        existing = db.query(Custodian).filter_by(name=data['name']).first()
+        if existing:
+            return jsonify({'error': 'El custodio ya existe'}), 400
+
+        custodian = Custodian(
+            name=data['name'],
+            type=data.get('type', 'other'),
+            notes=data.get('notes', '')
+        )
+
+        db.add(custodian)
+        db.commit()
+        db.refresh(custodian)
+
+        logger.info(f"Custodian created: {custodian.name}")
+
+        return jsonify(custodian.to_dict()), 201
+
+    except Exception as e:
+        logger.error(f"Error creating custodian: {str(e)}")
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/custodians/<int:id>', methods=['PUT'])
+def update_custodian(id):
+    """Actualizar custodio"""
+    try:
+        db = get_db()
+        custodian = db.query(Custodian).filter(Custodian.id == id).first()
+
+        if not custodian:
+            return jsonify({'error': 'Custodio no encontrado'}), 404
+
+        data = request.get_json()
+
+        custodian.name = data.get('name', custodian.name)
+        custodian.type = data.get('type', custodian.type)
+        custodian.notes = data.get('notes', custodian.notes)
+
+        db.commit()
+
+        logger.info(f"Custodian updated: {custodian.name}")
+
+        return jsonify(custodian.to_dict())
+
+    except Exception as e:
+        logger.error(f"Error updating custodian {id}: {str(e)}")
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/custodians/<int:id>', methods=['DELETE'])
+def delete_custodian(id):
+    """Desactivar custodio (soft delete)"""
+    try:
+        db = get_db()
+        custodian = db.query(Custodian).filter(Custodian.id == id).first()
+
+        if not custodian:
+            return jsonify({'error': 'Custodio no encontrado'}), 404
+
+        # Verificar si tiene transacciones asociadas
+        transaction_count = db.query(Transaction).filter(Transaction.custodian_id == id).count()
+
+        if transaction_count > 0:
+            custodian.is_active = False  # Soft delete
+            db.commit()
+            logger.info(f"Custodian deactivated: {custodian.name} ({transaction_count} transactions)")
+            return jsonify({'message': f'Custodio desactivado (tiene {transaction_count} transacciones asociadas)'})
+        else:
+            db.delete(custodian)  # Hard delete si no tiene transacciones
+            db.commit()
+            logger.info(f"Custodian deleted: {custodian.name}")
+            return jsonify({'message': 'Custodio eliminado'})
+
+    except Exception as e:
+        logger.error(f"Error deleting custodian {id}: {str(e)}")
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/by-custodian', methods=['GET'])
+def portfolio_by_custodian():
+    """Resumen de cartera agrupado por custodio"""
+    try:
+        db = get_db()
+        transactions = db.query(Transaction).all()
+
+        if not transactions:
+            return jsonify([])
+
+        # Agrupar por custodio
+        custodian_summary = {}
+
+        for trans in transactions:
+            # Obtener nombre del custodio
+            if trans.custodian_obj:
+                custodian_name = trans.custodian_obj.name
+            else:
+                custodian_name = 'Sin asignar'
+
+            if custodian_name not in custodian_summary:
+                custodian_summary[custodian_name] = {
+                    'invested': 0,
+                    'current_value': 0
+                }
+
+            # Obtener precio actual
+            current_price = get_current_price(trans.ticker)
+            if current_price:
+                invested = float(trans.purchase_price) * float(trans.quantity)
+                current_val = current_price * float(trans.quantity)
+
+                custodian_summary[custodian_name]['invested'] += invested
+                custodian_summary[custodian_name]['current_value'] += current_val
+
+        # Convertir a lista
+        result = []
+        for custodian, data in custodian_summary.items():
+            gain_loss_dollar, gain_loss_percent = calculate_gain_loss(
+                data['invested'],
+                data['current_value']
+            )
+
+            result.append({
+                'custodian': custodian,
+                'invested': round(data['invested'], 2),
+                'current_value': round(data['current_value'], 2),
+                'gain_loss_dollar': round(gain_loss_dollar, 2),
+                'gain_loss_percent': round(gain_loss_percent, 2)
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error fetching portfolio by custodian: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
