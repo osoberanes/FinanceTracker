@@ -344,14 +344,18 @@ async function loadPortfolioChart() {
     const chartDiv = document.getElementById('portfolioChart');
 
     try {
+        // Clear any existing content (including spinner)
+        chartDiv.innerHTML = '';
+
         const response = await fetch('/api/portfolio/history');
         const data = await response.json();
 
-        if (data.dates.length === 0) {
+        // Check if we have data
+        if (!data || !data.dates || data.dates.length === 0) {
             chartDiv.innerHTML = `
-                <div class="empty-state">
-                    <i class="bi bi-graph-up"></i>
-                    <p>No hay datos suficientes para mostrar el gráfico</p>
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
+                    <p class="mt-3">No hay datos suficientes para mostrar el gráfico</p>
                     <p class="text-muted">Agrega transacciones para ver la evolución de tu cartera</p>
                 </div>
             `;
@@ -404,13 +408,15 @@ async function loadPortfolioChart() {
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
         };
 
-        Plotly.newPlot(chartDiv, [trace], layout, config);
+        // Render the chart (this automatically clears the div content)
+        await Plotly.newPlot(chartDiv, [trace], layout, config);
     } catch (error) {
         console.error('Error loading chart:', error);
         chartDiv.innerHTML = `
             <div class="text-center text-danger py-5">
                 <i class="bi bi-exclamation-triangle" style="font-size: 2rem;"></i>
                 <p class="mt-2">Error al cargar el gráfico</p>
+                <p class="text-muted small">${error.message}</p>
             </div>
         `;
     }
@@ -625,11 +631,14 @@ async function loadCustodiansDropdown() {
 
 // Load pie chart for ticker composition
 async function loadTickerPieChart() {
+    const chartDiv = document.getElementById('ticker-pie-chart');
+
     try {
+        // Clear any existing content (including spinner)
+        chartDiv.innerHTML = '';
+
         const response = await fetch('/api/portfolio/summary');
         const data = await response.json();
-
-        const chartDiv = document.getElementById('ticker-pie-chart');
 
         if (!data.positions || data.positions.length === 0) {
             chartDiv.innerHTML = '<p class="text-muted text-center py-5">Sin datos para mostrar</p>';
@@ -664,21 +673,23 @@ async function loadTickerPieChart() {
             height: 350
         };
 
-        Plotly.newPlot('ticker-pie-chart', pieData, layout, { responsive: true });
+        await Plotly.newPlot('ticker-pie-chart', pieData, layout, { responsive: true });
     } catch (error) {
         console.error('Error loading ticker pie chart:', error);
-        document.getElementById('ticker-pie-chart').innerHTML =
-            '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
+        chartDiv.innerHTML = '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
     }
 }
 
 // Load pie chart for custodian composition
 async function loadCustodianPieChart() {
+    const chartDiv = document.getElementById('custodian-pie-chart');
+
     try {
+        // Clear any existing content (including spinner)
+        chartDiv.innerHTML = '';
+
         const response = await fetch('/api/portfolio/by-custodian');
         const data = await response.json();
-
-        const chartDiv = document.getElementById('custodian-pie-chart');
 
         if (!data || data.length === 0) {
             chartDiv.innerHTML = '<p class="text-muted text-center py-5">Sin datos de custodios</p>';
@@ -713,11 +724,10 @@ async function loadCustodianPieChart() {
             height: 350
         };
 
-        Plotly.newPlot('custodian-pie-chart', pieData, layout, { responsive: true });
+        await Plotly.newPlot('custodian-pie-chart', pieData, layout, { responsive: true });
     } catch (error) {
         console.error('Error loading custodian pie chart:', error);
-        document.getElementById('custodian-pie-chart').innerHTML =
-            '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
+        chartDiv.innerHTML = '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
     }
 }
 
