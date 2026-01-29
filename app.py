@@ -55,9 +55,12 @@ def get_transactions():
         for trans in transactions:
             current_price = get_current_price(trans.ticker)
 
-            # Calculate values
-            invested_value = trans.purchase_price * trans.quantity
-            current_value = current_price * trans.quantity if current_price else None
+            # Calculate values - convert Decimal to float for calculations
+            purchase_price_float = float(trans.purchase_price)
+            quantity_float = float(trans.quantity)
+
+            invested_value = purchase_price_float * quantity_float
+            current_value = current_price * quantity_float if current_price else None
 
             gain_loss_dollar = None
             gain_loss_percent = None
@@ -108,21 +111,30 @@ def create_transaction():
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
 
-        # Get market and format ticker
+        # Get asset_type and market
+        asset_type = data.get('asset_type', 'stock')
         market = data.get('market', 'MX').upper()
         ticker = data['ticker'].upper().strip()
 
-        # Remove .MX suffix if user added it
-        ticker = ticker.replace('.MX', '').replace('.US', '')
+        # Handle crypto tickers separately
+        if market == 'CRYPTO' or asset_type == 'crypto':
+            asset_type = 'crypto'
+            # Crypto tickers don't need formatting, just validate
+            if not validate_ticker(ticker):
+                return jsonify({'error': f'Invalid crypto ticker: {ticker}. Supported: BTC, ETH, SOL, XRP, PAXG'}), 400
+        else:
+            # Stock ticker formatting
+            # Remove .MX suffix if user added it
+            ticker = ticker.replace('.MX', '').replace('.US', '')
 
-        # Add appropriate suffix based on market
-        if market == 'MX':
-            ticker = ticker + '.MX'
-        # For US market, no suffix needed
+            # Add appropriate suffix based on market
+            if market == 'MX':
+                ticker = ticker + '.MX'
+            # For US market, no suffix needed
 
-        # Validate ticker exists
-        if not validate_ticker(ticker):
-            return jsonify({'error': f'Invalid ticker: {ticker}. Ticker not found in Yahoo Finance.'}), 400
+            # Validate ticker exists
+            if not validate_ticker(ticker):
+                return jsonify({'error': f'Invalid ticker: {ticker}. Ticker not found in Yahoo Finance.'}), 400
 
         # Validate date
         try:
@@ -145,16 +157,23 @@ def create_transaction():
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid numeric values'}), 400
 
+        # Get crypto-specific fields
+        generates_staking = data.get('generates_staking', False)
+        staking_rewards = float(data.get('staking_rewards', 0.0))
+
         # Create transaction
         db = get_db()
         transaction = Transaction(
+            asset_type=asset_type,
             ticker=ticker,
             market=market,
             purchase_date=purchase_date,
             purchase_price=purchase_price,
             quantity=quantity,
             currency='MXN',
-            custodian_id=data.get('custodian_id')
+            custodian_id=data.get('custodian_id'),
+            generates_staking=generates_staking,
+            staking_rewards=staking_rewards
         )
 
         db.add(transaction)
@@ -347,13 +366,16 @@ def update_transaction(id):
     Args:
         id: Transaction ID
 
-    Expected JSON body:
+    Expected JSON body (all fields optional):
         {
             "ticker": "AAPL",
             "market": "US",
+            "asset_type": "stock" or "crypto",
             "purchase_date": "2024-01-15",
             "purchase_price": 150.50,
-            "quantity": 10
+            "quantity": 10,
+            "generates_staking": false,
+            "staking_rewards": 0.0
         }
 
     Returns:
@@ -368,54 +390,85 @@ def update_transaction(id):
 
         data = request.get_json()
 
-        # Get market and format ticker
-        market = data.get('market', 'MX').upper()
-        ticker = data['ticker'].upper().strip()
+        # Handle ticker update if provided
+        if 'ticker' in data:
+            market = data.get('market', transaction.market or 'MX').upper()
+            asset_type = data.get('asset_type', transaction.asset_type or 'stock')
+            ticker = data['ticker'].upper().strip()
 
-        # Remove suffix if user added it
-        ticker = ticker.replace('.MX', '').replace('.US', '')
+            # Check if crypto
+            if market == 'CRYPTO' or asset_type == 'crypto':
+                asset_type = 'crypto'
+                if not validate_ticker(ticker):
+                    return jsonify({'error': f'Invalid crypto ticker: {ticker}. Supported: BTC, ETH, SOL, XRP, PAXG'}), 400
+                transaction.ticker = ticker
+                transaction.asset_type = 'crypto'
+                transaction.market = 'CRYPTO'
+            else:
+                # Stock ticker
+                ticker = ticker.replace('.MX', '').replace('.US', '')
+                if market == 'MX':
+                    ticker = ticker + '.MX'
 
-        # Add appropriate suffix
-        if market == 'MX':
-            ticker = ticker + '.MX'
+                if not validate_ticker(ticker):
+                    return jsonify({'error': f'Invalid ticker: {ticker}. Ticker not found.'}), 400
 
-        # Validate ticker
-        if not validate_ticker(ticker):
-            return jsonify({'error': f'Invalid ticker: {ticker}. Ticker not found in Yahoo Finance.'}), 400
+                transaction.ticker = ticker
+                transaction.asset_type = 'stock'
+                transaction.market = market
 
-        # Validate date
-        try:
-            purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
-            if purchase_date > datetime.now().date():
-                return jsonify({'error': 'Purchase date cannot be in the future'}), 400
-        except ValueError:
-            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        # Handle date update if provided
+        if 'purchase_date' in data:
+            try:
+                purchase_date = datetime.strptime(data['purchase_date'], '%Y-%m-%d').date()
+                if purchase_date > datetime.now().date():
+                    return jsonify({'error': 'Purchase date cannot be in the future'}), 400
+                transaction.purchase_date = purchase_date
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
-        # Validate numeric values
-        try:
-            purchase_price = float(data['purchase_price'])
-            quantity = float(data['quantity'])
+        # Handle numeric values if provided
+        if 'purchase_price' in data:
+            try:
+                purchase_price = float(data['purchase_price'])
+                if purchase_price <= 0:
+                    return jsonify({'error': 'Purchase price must be greater than 0'}), 400
+                transaction.purchase_price = purchase_price
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid purchase_price value'}), 400
 
-            if purchase_price <= 0:
-                return jsonify({'error': 'Purchase price must be greater than 0'}), 400
-            if quantity <= 0:
-                return jsonify({'error': 'Quantity must be greater than 0'}), 400
-        except (ValueError, TypeError):
-            return jsonify({'error': 'Invalid numeric values'}), 400
+        if 'quantity' in data:
+            try:
+                quantity = float(data['quantity'])
+                if quantity <= 0:
+                    return jsonify({'error': 'Quantity must be greater than 0'}), 400
+                transaction.quantity = quantity
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid quantity value'}), 400
 
-        # Update transaction fields
-        transaction.ticker = ticker
-        transaction.market = market
-        transaction.purchase_date = purchase_date
-        transaction.purchase_price = purchase_price
-        transaction.quantity = quantity
-        transaction.currency = 'MXN'
-        transaction.custodian_id = data.get('custodian_id')
+        # Handle staking fields (crypto only)
+        if 'generates_staking' in data:
+            transaction.generates_staking = bool(data['generates_staking'])
+
+        if 'staking_rewards' in data:
+            try:
+                transaction.staking_rewards = float(data['staking_rewards'])
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid staking_rewards value'}), 400
+
+        # Handle custodian if provided
+        if 'custodian_id' in data:
+            transaction.custodian_id = data.get('custodian_id')
+
+        # Handle notes if provided
+        if 'notes' in data:
+            transaction.notes = data.get('notes')
+
         transaction.updated_at = datetime.now()
 
         db.commit()
 
-        logger.info(f"Transaction {id} updated: {ticker} - {quantity} shares at ${purchase_price}")
+        logger.info(f"Transaction {id} updated: {transaction.ticker}")
 
         return jsonify({
             'message': 'Transaction updated successfully',

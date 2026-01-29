@@ -19,9 +19,10 @@
                                 <select class="form-select" id="market" required>
                                     <option value="MX" selected>🇲🇽 México (BMV)</option>
                                     <option value="US">🇺🇸 Estados Unidos</option>
+                                    <option value="CRYPTO">🪙 Criptomonedas</option>
                                 </select>
                             </div>
-                            <div class="col-md-2">
+                            <div class="col-md-2" id="ticker-input-container">
                                 <label for="ticker" class="form-label">Ticker <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" id="ticker" required
                                        placeholder="Ej: FUNO11" style="text-transform: uppercase;">
@@ -29,18 +30,29 @@
                                     Sin .MX (se agrega automáticamente)
                                 </small>
                             </div>
+                            <div class="col-md-2" id="crypto-select-container" style="display: none;">
+                                <label for="crypto_ticker" class="form-label">Criptomoneda <span class="text-danger">*</span></label>
+                                <select class="form-select" id="crypto_ticker">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="BTC">Bitcoin (BTC)</option>
+                                    <option value="ETH">Ethereum (ETH)</option>
+                                    <option value="SOL">Solana (SOL)</option>
+                                    <option value="XRP">Ripple (XRP)</option>
+                                    <option value="PAXG">PAX Gold (PAXG)</option>
+                                </select>
+                            </div>
                             <div class="col-md-2">
                                 <label for="purchase_date" class="form-label">Fecha de Compra <span class="text-danger">*</span></label>
                                 <input type="date" class="form-control" id="purchase_date" required>
                             </div>
                             <div class="col-md-2">
                                 <label for="purchase_price" class="form-label">Precio (MXN) <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="purchase_price" step="0.01" min="0.01" required
+                                <input type="number" class="form-control" id="purchase_price" step="0.00000001" min="0.00000001" required
                                        placeholder="0.00">
                             </div>
                             <div class="col-md-2">
                                 <label for="quantity" class="form-label">Cantidad <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="quantity" step="0.01" min="0.01" required
+                                <input type="number" class="form-control" id="quantity" step="0.00000001" min="0.00000001" required
                                        placeholder="0.00">
                             </div>
                             <div class="col-md-2">
@@ -52,6 +64,22 @@
                                 <small class="form-text text-muted">
                                     <a href="/settings">Gestionar custodios</a>
                                 </small>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1" id="staking-container" style="display: none;">
+                            <div class="col-md-2">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" id="generates_staking">
+                                    <label class="form-check-label" for="generates_staking">
+                                        Genera Staking
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-3" id="staking-rewards-container" style="display: none;">
+                                <label for="staking_rewards" class="form-label">Recompensas Acumuladas</label>
+                                <input type="number" class="form-control" id="staking_rewards" step="0.00000001" min="0" value="0"
+                                       placeholder="0.00000000">
+                                <small class="form-text text-muted">En unidades de la cripto</small>
                             </div>
                         </div>
                         <div class="row g-3 mt-2">
@@ -325,27 +353,43 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="editModalLabel">Editar Transacción</h5>
+                    <h5 class="modal-title" id="editModalLabel">Editar Transaccion</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <form id="edit-form">
                         <input type="hidden" id="edit-id">
+                        <input type="hidden" id="edit-asset-type">
 
                         <div class="mb-3">
                             <label for="edit-market" class="form-label">Mercado</label>
-                            <select class="form-select" id="edit-market" required>
-                                <option value="MX">🇲🇽 México (BMV)</option>
-                                <option value="US">🇺🇸 Estados Unidos</option>
+                            <select class="form-select" id="edit-market" required onchange="handleEditMarketChange()">
+                                <option value="MX">Mexico (BMV)</option>
+                                <option value="US">Estados Unidos</option>
+                                <option value="CRYPTO">Criptomonedas</option>
                             </select>
                         </div>
 
-                        <div class="mb-3">
+                        <!-- Ticker para stocks -->
+                        <div class="mb-3" id="edit-ticker-container">
                             <label for="edit-ticker" class="form-label">Ticker</label>
-                            <input type="text" class="form-control" id="edit-ticker" required style="text-transform: uppercase;">
+                            <input type="text" class="form-control" id="edit-ticker" style="text-transform: uppercase;">
                             <small class="form-text text-muted" id="edit-ticker-hint">
-                                Sin .MX (se agrega automáticamente)
+                                Sin .MX (se agrega automaticamente)
                             </small>
+                        </div>
+
+                        <!-- Selector de crypto -->
+                        <div class="mb-3" id="edit-crypto-container" style="display: none;">
+                            <label for="edit-crypto-ticker" class="form-label">Criptomoneda</label>
+                            <select class="form-select" id="edit-crypto-ticker">
+                                <option value="">Seleccionar...</option>
+                                <option value="BTC">Bitcoin (BTC)</option>
+                                <option value="ETH">Ethereum (ETH)</option>
+                                <option value="SOL">Solana (SOL)</option>
+                                <option value="XRP">Ripple (XRP)</option>
+                                <option value="PAXG">PAX Gold (PAXG)</option>
+                            </select>
                         </div>
 
                         <div class="mb-3">
@@ -363,11 +407,27 @@
                             <input type="number" step="0.01" min="0.01" class="form-control" id="edit-quantity" required>
                         </div>
 
+                        <!-- Campos de staking (solo para crypto) -->
+                        <div id="edit-staking-container" style="display: none;">
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="edit-generates-staking" onchange="handleEditStakingChange()">
+                                    <label class="form-check-label" for="edit-generates-staking">
+                                        Genera Staking
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-3" id="edit-staking-rewards-container" style="display: none;">
+                                <label for="edit-staking-rewards" class="form-label">Recompensas Acumuladas</label>
+                                <input type="number" step="0.00000001" min="0" class="form-control" id="edit-staking-rewards" value="0">
+                            </div>
+                        </div>
+
                         <div class="mb-3">
                             <label for="edit-custodian" class="form-label">Custodio</label>
                             <select class="form-select" id="edit-custodian" name="custodian_id">
                                 <option value="">Sin asignar</option>
-                                <!-- Se llena dinámicamente con JavaScript -->
+                                <!-- Se llena dinamicamente con JavaScript -->
                             </select>
                         </div>
                     </form>

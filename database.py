@@ -23,6 +23,7 @@ def init_db():
     migrate_add_market_column()
     migrate_add_custodians()
     migrate_add_custodian_id_column()
+    migrate_add_crypto_fields()
     print(f"Database initialized at: {DATABASE_PATH}")
 
 
@@ -98,6 +99,7 @@ def migrate_add_custodians():
                     {'name': 'Hey Banco', 'type': 'bank', 'notes': 'Banco digital'},
                     {'name': 'Nu Invest', 'type': 'broker', 'notes': 'Inversiones Nu'},
                     {'name': 'Binance', 'type': 'crypto_exchange', 'notes': 'Exchange de criptomonedas'},
+                    {'name': 'Bitso', 'type': 'crypto_exchange', 'notes': 'Exchange mexicano de criptomonedas'},
                     {'name': 'Otro', 'type': 'other', 'notes': 'Otro custodio'}
                 ]
 
@@ -140,4 +142,37 @@ def migrate_add_custodian_id_column():
 
     except Exception as e:
         logger.error(f"Error during custodian_id migration: {str(e)}")
+        # Don't raise - allow app to continue even if migration fails
+
+
+def migrate_add_crypto_fields():
+    """
+    Migration to add crypto-specific fields to transactions table.
+    Adds: generates_staking (BOOLEAN) and staking_rewards (NUMERIC).
+    This is idempotent - safe to run multiple times.
+    """
+    try:
+        with engine.connect() as conn:
+            # Check if columns already exist
+            result = conn.execute(text("PRAGMA table_info(transactions)"))
+            columns = [row[1] for row in result]
+
+            if 'generates_staking' not in columns:
+                logger.info("Adding 'generates_staking' column to transactions table")
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN generates_staking BOOLEAN DEFAULT 0"))
+                conn.commit()
+                logger.info("Migration completed: 'generates_staking' column added")
+            else:
+                logger.debug("'generates_staking' column already exists, skipping")
+
+            if 'staking_rewards' not in columns:
+                logger.info("Adding 'staking_rewards' column to transactions table")
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN staking_rewards NUMERIC DEFAULT 0.0"))
+                conn.commit()
+                logger.info("Migration completed: 'staking_rewards' column added")
+            else:
+                logger.debug("'staking_rewards' column already exists, skipping")
+
+    except Exception as e:
+        logger.error(f"Error during crypto fields migration: {str(e)}")
         # Don't raise - allow app to continue even if migration fails

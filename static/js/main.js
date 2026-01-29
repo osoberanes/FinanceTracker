@@ -73,6 +73,72 @@ function showMessage(message, type = 'success') {
     }, 5000);
 }
 
+// Handle market change (show/hide crypto selector and adjust form)
+function handleMarketChange() {
+    const market = document.getElementById('market').value;
+    const tickerInputContainer = document.getElementById('ticker-input-container');
+    const cryptoSelectContainer = document.getElementById('crypto-select-container');
+    const stakingContainer = document.getElementById('staking-container');
+    const tickerInput = document.getElementById('ticker');
+    const tickerHint = document.getElementById('ticker-hint');
+    const priceInput = document.getElementById('purchase_price');
+    const quantityInput = document.getElementById('quantity');
+
+    if (market === 'CRYPTO') {
+        // Show crypto selector, hide ticker input
+        tickerInputContainer.style.display = 'none';
+        cryptoSelectContainer.style.display = 'block';
+        stakingContainer.style.display = 'block';
+        tickerInput.required = false;
+        document.getElementById('crypto_ticker').required = true;
+
+        // Adjust decimal precision for crypto (8 decimals)
+        priceInput.step = '0.00000001';
+        quantityInput.step = '0.00000001';
+    } else {
+        // Show ticker input, hide crypto selector
+        tickerInputContainer.style.display = 'block';
+        cryptoSelectContainer.style.display = 'none';
+        stakingContainer.style.display = 'none';
+        tickerInput.required = true;
+        document.getElementById('crypto_ticker').required = false;
+
+        // Reset to normal precision
+        priceInput.step = '0.01';
+        quantityInput.step = '0.01';
+
+        // Update ticker hint
+        if (market === 'MX') {
+            tickerInput.placeholder = 'Ej: FUNO11, DANHOS13';
+            tickerHint.textContent = 'Sin .MX (se agrega automáticamente)';
+        } else {
+            tickerInput.placeholder = 'Ej: AAPL, MSFT';
+            tickerHint.textContent = 'Ingresa el ticker sin sufijo';
+        }
+    }
+}
+
+// Handle crypto selection change (enable/disable staking for ETH/SOL)
+function handleCryptoChange() {
+    const cryptoTicker = document.getElementById('crypto_ticker').value;
+    const generatesStakingCheckbox = document.getElementById('generates_staking');
+    const stakingLabel = document.querySelector('label[for="generates_staking"]');
+
+    // ETH and SOL support staking
+    const stakingCryptos = ['ETH', 'SOL'];
+
+    if (stakingCryptos.includes(cryptoTicker)) {
+        generatesStakingCheckbox.disabled = false;
+        stakingLabel.classList.remove('text-muted');
+    } else {
+        generatesStakingCheckbox.disabled = true;
+        generatesStakingCheckbox.checked = false;
+        stakingLabel.classList.add('text-muted');
+        document.getElementById('staking-rewards-container').style.display = 'none';
+        document.getElementById('staking_rewards').value = '0';
+    }
+}
+
 // Set max date to today for date input
 document.addEventListener('DOMContentLoaded', function() {
     const dateInput = document.getElementById('purchase_date');
@@ -86,16 +152,25 @@ document.addEventListener('DOMContentLoaded', function() {
     // Market selector change handler
     const marketSelect = document.getElementById('market');
     if (marketSelect) {
-        marketSelect.addEventListener('change', function() {
-            const tickerInput = document.getElementById('ticker');
-            const tickerHint = document.getElementById('ticker-hint');
+        marketSelect.addEventListener('change', handleMarketChange);
+    }
 
-            if (this.value === 'MX') {
-                tickerInput.placeholder = 'Ej: FUNO11, DANHOS13';
-                tickerHint.textContent = 'Sin .MX (se agrega automáticamente)';
+    // Crypto ticker change handler
+    const cryptoTickerSelect = document.getElementById('crypto_ticker');
+    if (cryptoTickerSelect) {
+        cryptoTickerSelect.addEventListener('change', handleCryptoChange);
+    }
+
+    // Generates staking checkbox handler
+    const generatesStakingCheckbox = document.getElementById('generates_staking');
+    if (generatesStakingCheckbox) {
+        generatesStakingCheckbox.addEventListener('change', function() {
+            const stakingRewardsContainer = document.getElementById('staking-rewards-container');
+            if (this.checked) {
+                stakingRewardsContainer.style.display = 'block';
             } else {
-                tickerInput.placeholder = 'Ej: AAPL, MSFT';
-                tickerHint.textContent = 'Ingresa el ticker sin sufijo';
+                stakingRewardsContainer.style.display = 'none';
+                document.getElementById('staking_rewards').value = '0';
             }
         });
     }
@@ -120,11 +195,25 @@ document.getElementById('transactionForm').addEventListener('submit', async func
     e.preventDefault();
 
     const market = document.getElementById('market').value;
-    const ticker = document.getElementById('ticker').value.toUpperCase().trim();
+    let ticker;
+
+    // Get ticker based on market type
+    if (market === 'CRYPTO') {
+        ticker = document.getElementById('crypto_ticker').value;
+        if (!ticker) {
+            showMessage('Por favor selecciona una criptomoneda', 'error');
+            return;
+        }
+    } else {
+        ticker = document.getElementById('ticker').value.toUpperCase().trim();
+    }
+
     const purchaseDate = document.getElementById('purchase_date').value;
     const purchasePrice = parseFloat(document.getElementById('purchase_price').value);
     const quantity = parseFloat(document.getElementById('quantity').value);
     const custodianId = document.getElementById('custodian').value;
+    const generatesStaking = document.getElementById('generates_staking').checked;
+    const stakingRewards = parseFloat(document.getElementById('staking_rewards').value) || 0;
 
     // Basic validation
     if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
@@ -140,6 +229,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
 
     try {
         const requestBody = {
+            asset_type: market === 'CRYPTO' ? 'crypto' : 'stock',
             market: market,
             ticker: ticker,
             purchase_date: purchaseDate,
@@ -150,6 +240,12 @@ document.getElementById('transactionForm').addEventListener('submit', async func
         // Add custodian_id if selected
         if (custodianId) {
             requestBody.custodian_id = parseInt(custodianId);
+        }
+
+        // Add crypto-specific fields
+        if (market === 'CRYPTO') {
+            requestBody.generates_staking = generatesStaking;
+            requestBody.staking_rewards = stakingRewards;
         }
 
         const response = await fetch('/api/transactions', {
@@ -163,12 +259,14 @@ document.getElementById('transactionForm').addEventListener('submit', async func
         const data = await response.json();
 
         if (response.ok) {
-            showMessage(`Transacción agregada exitosamente: ${ticker}`, 'success');
+            const assetIcon = market === 'CRYPTO' ? '🪙' : '📊';
+            showMessage(`${assetIcon} Transacción agregada exitosamente: ${ticker}`, 'success');
 
             // Reset form
             e.target.reset();
             document.getElementById('market').value = 'MX';
             document.getElementById('purchase_date').value = new Date().toISOString().split('T')[0];
+            handleMarketChange(); // Reset form UI
 
             // Reload data
             loadAllData();
@@ -436,6 +534,37 @@ function loadAllData() {
 
 let transactionToDelete = null;
 
+// Handle edit modal market change
+function handleEditMarketChange() {
+    const market = document.getElementById('edit-market').value;
+    const tickerContainer = document.getElementById('edit-ticker-container');
+    const cryptoContainer = document.getElementById('edit-crypto-container');
+    const stakingContainer = document.getElementById('edit-staking-container');
+    const priceInput = document.getElementById('edit-price');
+    const quantityInput = document.getElementById('edit-quantity');
+
+    if (market === 'CRYPTO') {
+        tickerContainer.style.display = 'none';
+        cryptoContainer.style.display = 'block';
+        stakingContainer.style.display = 'block';
+        priceInput.step = '0.00000001';
+        quantityInput.step = '0.00000001';
+    } else {
+        tickerContainer.style.display = 'block';
+        cryptoContainer.style.display = 'none';
+        stakingContainer.style.display = 'none';
+        priceInput.step = '0.01';
+        quantityInput.step = '0.01';
+    }
+}
+
+// Handle edit staking checkbox change
+function handleEditStakingChange() {
+    const checkbox = document.getElementById('edit-generates-staking');
+    const rewardsContainer = document.getElementById('edit-staking-rewards-container');
+    rewardsContainer.style.display = checkbox.checked ? 'block' : 'none';
+}
+
 // Open edit modal
 async function editTransaction(id) {
     try {
@@ -444,14 +573,48 @@ async function editTransaction(id) {
 
         // Fill form with transaction data
         document.getElementById('edit-id').value = transaction.id;
+        document.getElementById('edit-asset-type').value = transaction.asset_type || 'stock';
 
         // Set market
         const market = transaction.market || 'MX';
         document.getElementById('edit-market').value = market;
 
-        // Remove .MX suffix for display
-        let displayTicker = transaction.ticker.replace('.MX', '');
-        document.getElementById('edit-ticker').value = displayTicker;
+        // Handle crypto vs stock
+        if (market === 'CRYPTO' || transaction.asset_type === 'crypto') {
+            document.getElementById('edit-market').value = 'CRYPTO';
+            document.getElementById('edit-crypto-ticker').value = transaction.ticker;
+            document.getElementById('edit-ticker').value = '';
+
+            // Show crypto fields
+            document.getElementById('edit-ticker-container').style.display = 'none';
+            document.getElementById('edit-crypto-container').style.display = 'block';
+            document.getElementById('edit-staking-container').style.display = 'block';
+
+            // Set staking values
+            document.getElementById('edit-generates-staking').checked = transaction.generates_staking || false;
+            document.getElementById('edit-staking-rewards').value = transaction.staking_rewards || 0;
+
+            // Show/hide rewards based on checkbox
+            document.getElementById('edit-staking-rewards-container').style.display =
+                transaction.generates_staking ? 'block' : 'none';
+
+            // Set precision for crypto
+            document.getElementById('edit-price').step = '0.00000001';
+            document.getElementById('edit-quantity').step = '0.00000001';
+        } else {
+            // Stock
+            document.getElementById('edit-ticker-container').style.display = 'block';
+            document.getElementById('edit-crypto-container').style.display = 'none';
+            document.getElementById('edit-staking-container').style.display = 'none';
+
+            // Remove .MX suffix for display
+            let displayTicker = transaction.ticker.replace('.MX', '');
+            document.getElementById('edit-ticker').value = displayTicker;
+
+            // Set precision for stocks
+            document.getElementById('edit-price').step = '0.01';
+            document.getElementById('edit-quantity').step = '0.01';
+        }
 
         document.getElementById('edit-date').value = transaction.purchase_date;
         document.getElementById('edit-price').value = transaction.purchase_price;
@@ -470,7 +633,7 @@ async function editTransaction(id) {
         modal.show();
     } catch (error) {
         console.error('Error loading transaction:', error);
-        showMessage('Error al cargar la transacción: ' + error.message, 'error');
+        showMessage('Error al cargar la transaccion: ' + error.message, 'error');
     }
 }
 
@@ -478,14 +641,33 @@ async function editTransaction(id) {
 async function saveEdit() {
     const id = document.getElementById('edit-id').value;
     const market = document.getElementById('edit-market').value;
-    const ticker = document.getElementById('edit-ticker').value.trim().toUpperCase();
     const purchaseDate = document.getElementById('edit-date').value;
     const purchasePrice = parseFloat(document.getElementById('edit-price').value);
     const quantity = parseFloat(document.getElementById('edit-quantity').value);
     const custodianId = document.getElementById('edit-custodian')?.value;
 
+    // Get ticker based on market type
+    let ticker;
+    let assetType;
+
+    if (market === 'CRYPTO') {
+        ticker = document.getElementById('edit-crypto-ticker').value;
+        assetType = 'crypto';
+        if (!ticker) {
+            showMessage('Por favor selecciona una criptomoneda', 'error');
+            return;
+        }
+    } else {
+        ticker = document.getElementById('edit-ticker').value.trim().toUpperCase();
+        assetType = 'stock';
+        if (!ticker) {
+            showMessage('Por favor ingresa el ticker', 'error');
+            return;
+        }
+    }
+
     // Validation
-    if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
+    if (!purchaseDate || !purchasePrice || !quantity) {
         showMessage('Por favor completa todos los campos', 'error');
         return;
     }
@@ -498,10 +680,17 @@ async function saveEdit() {
     const data = {
         market: market,
         ticker: ticker,
+        asset_type: assetType,
         purchase_date: purchaseDate,
         purchase_price: purchasePrice,
         quantity: quantity
     };
+
+    // Add staking fields for crypto
+    if (market === 'CRYPTO') {
+        data.generates_staking = document.getElementById('edit-generates-staking').checked;
+        data.staking_rewards = parseFloat(document.getElementById('edit-staking-rewards').value) || 0;
+    }
 
     // Add custodian_id if selected
     if (custodianId) {
@@ -522,7 +711,7 @@ async function saveEdit() {
             const modal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
             modal.hide();
 
-            showMessage('Transacción actualizada exitosamente', 'success');
+            showMessage('Transaccion actualizada exitosamente', 'success');
 
             // Reload data
             loadAllData();

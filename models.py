@@ -1,6 +1,6 @@
 """SQLAlchemy models for the portfolio tracker."""
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Text, Boolean, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
@@ -43,17 +43,19 @@ class Transaction(Base):
     __tablename__ = 'transactions'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    asset_type = Column(String, nullable=False, default='stock')  # Future: 'stock', 'crypto', 'cete', 'bond'
+    asset_type = Column(String, nullable=False, default='stock')  # 'stock', 'crypto', 'cete', 'bond'
     ticker = Column(String, nullable=False)
-    market = Column(String, default='MX')  # 'MX' for Mexico (BMV), 'US' for United States
+    market = Column(String, default='MX')  # 'MX' for Mexico (BMV), 'US' for United States, 'CRYPTO' for crypto
     purchase_date = Column(Date, nullable=False)
-    purchase_price = Column(Float, nullable=False)
-    quantity = Column(Float, nullable=False)
+    purchase_price = Column(Numeric(18, 8), nullable=False)  # 8 decimals for crypto precision
+    quantity = Column(Numeric(18, 8), nullable=False)  # 8 decimals for crypto precision
     currency = Column(String, default='MXN')  # All prices stored in MXN
     custodian_id = Column(Integer, ForeignKey('custodians.id'), nullable=True)  # Foreign key to custodians table
     custodian = Column(String)  # Legacy field - kept for backwards compatibility
     commission = Column(Float, default=0.0)  # Future
     notes = Column(Text)  # Future
+    generates_staking = Column(Boolean, default=False)  # For ETH, SOL and other staking cryptos
+    staking_rewards = Column(Numeric(18, 8), default=0.0)  # Accumulated staking rewards in crypto units
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -65,12 +67,15 @@ class Transaction(Base):
             'ticker': self.ticker,
             'market': self.market,
             'purchase_date': self.purchase_date.strftime('%Y-%m-%d') if self.purchase_date else None,
-            'purchase_price': self.purchase_price,
-            'quantity': self.quantity,
+            'purchase_price': float(self.purchase_price) if self.purchase_price else None,
+            'quantity': float(self.quantity) if self.quantity else None,
             'currency': self.currency,
             'custodian': self.custodian,
+            'custodian_id': self.custodian_id,
             'commission': self.commission,
             'notes': self.notes,
+            'generates_staking': self.generates_staking,
+            'staking_rewards': float(self.staking_rewards) if self.staking_rewards else 0.0,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
         }

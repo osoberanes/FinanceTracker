@@ -6,6 +6,15 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import logging
 
+# Import crypto utilities
+from crypto_utils import (
+    CoinGeckoAPI,
+    get_crypto_price,
+    get_crypto_historical_price,
+    CRYPTO_SYMBOLS_MAP,
+    is_crypto as is_crypto_symbol
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,6 +23,11 @@ logger = logging.getLogger(__name__)
 price_cache = {}
 historical_cache = {}
 exchange_rate_cache = {}  # Cache for USD/MXN exchange rates
+
+
+def is_crypto(ticker: str) -> bool:
+    """Determina si un ticker es criptomoneda"""
+    return is_crypto_symbol(ticker)
 
 
 def get_usd_mxn_rate(date: str = None) -> float:
@@ -104,17 +118,26 @@ def parse_date_mx(date_str: str) -> datetime:
 
 def get_current_price(ticker: str) -> Optional[float]:
     """
-    Get current price from Yahoo Finance, converted to MXN.
+    Get current price from Yahoo Finance or CoinGecko, converted to MXN.
 
+    Automatically detects if ticker is crypto or stock.
     Mexican tickers (ending in .MX) are already in MXN.
     US tickers are converted from USD to MXN using current exchange rate.
+    Crypto prices are fetched from CoinGecko in MXN directly.
 
     Args:
-        ticker: Stock ticker symbol
+        ticker: Stock ticker symbol or crypto symbol (BTC, ETH, etc.)
 
     Returns:
         Current price in MXN or None if error
     """
+    # Check if it's a cryptocurrency
+    if is_crypto(ticker):
+        logger.info(f"Fetching crypto price for {ticker}")
+        price = get_crypto_price(ticker)
+        return price if price else None
+
+    # If not crypto, fetch from Yahoo Finance (stock)
     cache_key = f"{ticker}_current_mxn"
 
     # Check cache (valid for 5 minutes)
@@ -163,13 +186,15 @@ def get_current_price(ticker: str) -> Optional[float]:
 
 def get_historical_prices(ticker: str, start_date: str, end_date: str = None) -> pd.DataFrame:
     """
-    Get historical prices from Yahoo Finance, converted to MXN.
+    Get historical prices from Yahoo Finance or CoinGecko, converted to MXN.
 
+    Automatically detects if ticker is crypto or stock.
     Mexican tickers (ending in .MX) are already in MXN.
     US tickers are converted from USD to MXN using historical exchange rates.
+    Crypto prices are fetched from CoinGecko in MXN directly.
 
     Args:
-        ticker: Stock ticker symbol
+        ticker: Stock ticker symbol or crypto symbol
         start_date: Start date in 'YYYY-MM-DD' format
         end_date: End date in 'YYYY-MM-DD' format (default: today)
 
@@ -185,6 +210,24 @@ def get_historical_prices(ticker: str, start_date: str, end_date: str = None) ->
     if cache_key in historical_cache:
         return historical_cache[cache_key]
 
+    # Check if it's a cryptocurrency
+    if is_crypto(ticker):
+        logger.info(f"Fetching crypto historical prices for {ticker}")
+        prices_data = CoinGeckoAPI.get_price_range(ticker, start_date, end_date, 'mxn')
+
+        if prices_data:
+            # Convert to DataFrame
+            df = pd.DataFrame(prices_data)
+            df['Date'] = pd.to_datetime(df['date'])
+            df = df.set_index('Date')
+            df = df.rename(columns={'price': 'Close'})
+            historical_cache[cache_key] = df[['Close']]
+            return df[['Close']]
+        else:
+            logger.warning(f"No crypto historical data for {ticker}")
+            return pd.DataFrame()
+
+    # If not crypto, fetch from Yahoo Finance (stock)
     try:
         stock = yf.Ticker(ticker)
         data = stock.history(start=start_date, end=end_date)
@@ -232,14 +275,21 @@ def get_historical_prices(ticker: str, start_date: str, end_date: str = None) ->
 
 def validate_ticker(ticker: str) -> bool:
     """
-    Validate if ticker exists in Yahoo Finance.
+    Validate if ticker exists in Yahoo Finance or CoinGecko.
+
+    Automatically detects if ticker is crypto or stock.
 
     Args:
-        ticker: Stock ticker symbol
+        ticker: Stock ticker symbol or crypto symbol
 
     Returns:
         True if ticker is valid, False otherwise
     """
+    # Check if it's a cryptocurrency
+    if is_crypto(ticker):
+        return CoinGeckoAPI.validate_symbol(ticker)
+
+    # If not crypto, validate as stock in Yahoo Finance
     try:
         stock = yf.Ticker(ticker)
 
