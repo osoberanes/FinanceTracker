@@ -214,6 +214,7 @@ document.getElementById('transactionForm').addEventListener('submit', async func
     const custodianId = document.getElementById('custodian').value;
     const generatesStaking = document.getElementById('generates_staking').checked;
     const stakingRewards = parseFloat(document.getElementById('staking_rewards').value) || 0;
+    const assetClass = document.getElementById('asset_class').value;
 
     // Basic validation
     if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
@@ -246,6 +247,11 @@ document.getElementById('transactionForm').addEventListener('submit', async func
         if (market === 'CRYPTO') {
             requestBody.generates_staking = generatesStaking;
             requestBody.staking_rewards = stakingRewards;
+        }
+
+        // Add asset_class if manually selected
+        if (assetClass) {
+            requestBody.asset_class = assetClass;
         }
 
         const response = await fetch('/api/transactions', {
@@ -437,8 +443,12 @@ function updateKPIs(totals) {
     document.getElementById('kpi-transactions').textContent = totals.num_transactions;
 }
 
+// Global variables for chart data
+let portfolioChartData = null;
+let currentChartRange = 'ALL';
+
 // Load portfolio evolution chart
-async function loadPortfolioChart() {
+async function loadPortfolioChart(range = 'ALL') {
     const chartDiv = document.getElementById('portfolioChart');
 
     try {
@@ -448,75 +458,166 @@ async function loadPortfolioChart() {
         const response = await fetch('/api/portfolio/history');
         const data = await response.json();
 
+        // Store full data for range filtering
+        portfolioChartData = data;
+
         // Check if we have data
         if (!data || !data.dates || data.dates.length === 0) {
             chartDiv.innerHTML = `
                 <div class="text-center text-muted py-5">
                     <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
-                    <p class="mt-3">No hay datos suficientes para mostrar el gráfico</p>
-                    <p class="text-muted">Agrega transacciones para ver la evolución de tu cartera</p>
+                    <p class="mt-3">No hay datos suficientes para mostrar el grafico</p>
+                    <p class="text-muted">Agrega transacciones para ver la evolucion de tu cartera</p>
                 </div>
             `;
             return;
         }
 
-        const trace = {
-            x: data.dates,
-            y: data.values,
-            type: 'scatter',
-            mode: 'lines+markers',
-            name: 'Valor de Cartera',
-            line: {
-                color: '#007bff',
-                width: 3
-            },
-            marker: {
-                color: '#007bff',
-                size: 6
-            },
-            hovertemplate: '<b>%{x}</b><br>Valor: $%{y:,.2f}<extra></extra>'
-        };
-
-        const layout = {
-            title: {
-                text: 'Evolución del Valor de la Cartera',
-                font: { size: 16 }
-            },
-            xaxis: {
-                title: 'Fecha',
-                showgrid: true,
-                gridcolor: '#e9ecef'
-            },
-            yaxis: {
-                title: 'Valor Total (MXN)',
-                tickformat: '$,.0f',
-                showgrid: true,
-                gridcolor: '#e9ecef'
-            },
-            hovermode: 'closest',
-            plot_bgcolor: '#ffffff',
-            paper_bgcolor: '#ffffff',
-            margin: { t: 50, r: 30, b: 50, l: 80 }
-        };
-
-        const config = {
-            responsive: true,
-            displayModeBar: true,
-            displaylogo: false,
-            modeBarButtonsToRemove: ['lasso2d', 'select2d']
-        };
-
-        // Render the chart (this automatically clears the div content)
-        await Plotly.newPlot(chartDiv, [trace], layout, config);
+        // Render with current range
+        renderPortfolioChart(range);
     } catch (error) {
         console.error('Error loading chart:', error);
         chartDiv.innerHTML = `
             <div class="text-center text-danger py-5">
                 <i class="bi bi-exclamation-triangle" style="font-size: 2rem;"></i>
-                <p class="mt-2">Error al cargar el gráfico</p>
+                <p class="mt-2">Error al cargar el grafico</p>
                 <p class="text-muted small">${error.message}</p>
             </div>
         `;
+    }
+}
+
+// Filter data by range and render chart
+function renderPortfolioChart(range) {
+    if (!portfolioChartData || !portfolioChartData.dates) return;
+
+    const chartDiv = document.getElementById('portfolioChart');
+
+    // Filter data based on range
+    let filteredDates = [...portfolioChartData.dates];
+    let filteredValues = [...portfolioChartData.values];
+
+    if (range !== 'ALL') {
+        const now = new Date();
+        let cutoffDate = new Date();
+
+        switch (range) {
+            case '1Y':
+                cutoffDate.setFullYear(now.getFullYear() - 1);
+                break;
+            case '3Y':
+                cutoffDate.setFullYear(now.getFullYear() - 3);
+                break;
+            case '5Y':
+                cutoffDate.setFullYear(now.getFullYear() - 5);
+                break;
+        }
+
+        // Filter data points after cutoff date
+        const filteredData = portfolioChartData.dates.reduce((acc, date, index) => {
+            const dateObj = new Date(date);
+            if (dateObj >= cutoffDate) {
+                acc.dates.push(date);
+                acc.values.push(portfolioChartData.values[index]);
+            }
+            return acc;
+        }, { dates: [], values: [] });
+
+        filteredDates = filteredData.dates;
+        filteredValues = filteredData.values;
+    }
+
+    // Check if we have filtered data
+    if (filteredDates.length === 0) {
+        chartDiv.innerHTML = `
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-calendar-x" style="font-size: 2rem;"></i>
+                <p class="mt-3">No hay datos para el rango seleccionado</p>
+                <p class="text-muted">Selecciona un rango diferente o "Todo"</p>
+            </div>
+        `;
+        return;
+    }
+
+    const trace = {
+        x: filteredDates,
+        y: filteredValues,
+        type: 'scatter',
+        mode: 'lines+markers',
+        name: 'Valor de Cartera',
+        line: {
+            color: '#007bff',
+            width: 3
+        },
+        marker: {
+            color: '#007bff',
+            size: 6
+        },
+        hovertemplate: '<b>%{x}</b><br>Valor: $%{y:,.2f}<extra></extra>'
+    };
+
+    const rangeLabels = {
+        '1Y': '1 Ano',
+        '3Y': '3 Anos',
+        '5Y': '5 Anos',
+        'ALL': 'Todo el Historico'
+    };
+
+    const layout = {
+        title: {
+            text: `Evolucion del Valor de la Cartera (${rangeLabels[range]})`,
+            font: { size: 16 }
+        },
+        xaxis: {
+            title: 'Fecha',
+            showgrid: true,
+            gridcolor: '#e9ecef'
+        },
+        yaxis: {
+            title: 'Valor Total (MXN)',
+            tickformat: '$,.0f',
+            showgrid: true,
+            gridcolor: '#e9ecef'
+        },
+        hovermode: 'closest',
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff',
+        margin: { t: 50, r: 30, b: 50, l: 80 }
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d']
+    };
+
+    // Render the chart
+    Plotly.newPlot(chartDiv, [trace], layout, config);
+}
+
+// Set chart range and update button states
+function setChartRange(range) {
+    currentChartRange = range;
+
+    // Update button states
+    const ranges = ['1Y', '3Y', '5Y', 'ALL'];
+    ranges.forEach(r => {
+        const btn = document.getElementById(`btn-range-${r}`);
+        if (btn) {
+            if (r === range) {
+                btn.classList.remove('btn-outline-light');
+                btn.classList.add('btn-light', 'active');
+            } else {
+                btn.classList.remove('btn-light', 'active');
+                btn.classList.add('btn-outline-light');
+            }
+        }
+    });
+
+    // Re-render chart with new range
+    if (portfolioChartData) {
+        renderPortfolioChart(range);
     }
 }
 
@@ -525,7 +626,7 @@ function loadAllData() {
     loadTransactions();
     loadPositions();
     loadPortfolioChart();
-    loadTickerPieChart();
+    loadAssetClassPieChart();
     loadCustodianPieChart();
     loadPerformanceTable();
 }
@@ -818,37 +919,42 @@ async function loadCustodiansDropdown() {
     }
 }
 
-// Load pie chart for ticker composition
-async function loadTickerPieChart() {
-    const chartDiv = document.getElementById('ticker-pie-chart');
+// Load pie chart for asset class composition (Swensen diversification)
+async function loadAssetClassPieChart() {
+    const chartDiv = document.getElementById('asset-class-pie-chart');
 
     try {
         // Clear any existing content (including spinner)
         chartDiv.innerHTML = '';
 
-        const response = await fetch('/api/portfolio/summary');
+        const response = await fetch('/api/portfolio/by-asset-class');
         const data = await response.json();
 
-        if (!data.positions || data.positions.length === 0) {
+        if (!data.asset_classes || data.asset_classes.length === 0) {
             chartDiv.innerHTML = '<p class="text-muted text-center py-5">Sin datos para mostrar</p>';
             return;
         }
 
-        const tickers = data.positions.map(item => item.ticker);
-        const values = data.positions.map(item => item.current_value || 0);
+        // Fetch colors from API
+        const colorsResponse = await fetch('/api/asset-class-colors');
+        const colorsMap = await colorsResponse.json();
+
+        const labels = data.asset_classes.map(item => `${item.emoji} ${item.name}`);
+        const values = data.asset_classes.map(item => item.value || 0);
+        const colors = data.asset_classes.map(item => colorsMap[item.asset_class] || '#6C757D');
 
         const pieData = [{
             values: values,
-            labels: tickers,
+            labels: labels,
             type: 'pie',
             hole: 0.4,
             textinfo: 'label+percent',
             textposition: 'outside',
             automargin: true,
             marker: {
-                colors: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#17a2b8',
-                         '#6f42c1', '#fd7e14', '#20c997', '#e83e8c', '#6c757d']
-            }
+                colors: colors
+            },
+            hovertemplate: '<b>%{label}</b><br>Valor: $%{value:,.2f}<br>Porcentaje: %{percent}<extra></extra>'
         }];
 
         const layout = {
@@ -862,10 +968,10 @@ async function loadTickerPieChart() {
             height: 350
         };
 
-        await Plotly.newPlot('ticker-pie-chart', pieData, layout, { responsive: true });
+        await Plotly.newPlot('asset-class-pie-chart', pieData, layout, { responsive: true });
     } catch (error) {
-        console.error('Error loading ticker pie chart:', error);
-        chartDiv.innerHTML = '<p class="text-danger text-center py-5">Error al cargar gráfico</p>';
+        console.error('Error loading asset class pie chart:', error);
+        chartDiv.innerHTML = '<p class="text-danger text-center py-5">Error al cargar grafico</p>';
     }
 }
 

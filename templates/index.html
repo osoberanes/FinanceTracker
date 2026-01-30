@@ -59,10 +59,33 @@
                                 <label for="custodian" class="form-label">Custodio</label>
                                 <select class="form-select" id="custodian" name="custodian_id">
                                     <option value="">Sin asignar</option>
-                                    <!-- Se llena dinámicamente con JavaScript -->
+                                    <!-- Se llena dinamicamente con JavaScript -->
                                 </select>
                                 <small class="form-text text-muted">
                                     <a href="/settings">Gestionar custodios</a>
+                                </small>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-3">
+                                <label for="asset_class" class="form-label">
+                                    Clasificacion <span class="badge bg-secondary">Opcional</span>
+                                </label>
+                                <select class="form-select" id="asset_class" name="asset_class">
+                                    <option value="">Auto-detectar</option>
+                                    <option value="acciones_mexico">Acciones Mexico</option>
+                                    <option value="acciones_usa">Acciones Estados Unidos</option>
+                                    <option value="acciones_internacionales">Acciones Internacionales</option>
+                                    <option value="mercados_emergentes">Mercados Emergentes</option>
+                                    <option value="fibras">FIBRAs</option>
+                                    <option value="cetes">CETES</option>
+                                    <option value="bonos_gubernamentales">Bonos Gubernamentales</option>
+                                    <option value="udibonos">UDIBONOS</option>
+                                    <option value="oro_materias_primas">Oro y Materias Primas</option>
+                                    <option value="criptomonedas">Criptomonedas</option>
+                                </select>
+                                <small class="form-text text-muted" id="asset-class-hint">
+                                    Si dejas en blanco, se clasificara automaticamente
                                 </small>
                             </div>
                         </div>
@@ -152,8 +175,14 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card shadow-sm">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0"><i class="bi bi-graph-up"></i> Evolución de la Cartera</h5>
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-graph-up"></i> Evolucion de la Cartera</h5>
+                    <div class="btn-group" role="group" aria-label="Rango de tiempo">
+                        <button type="button" class="btn btn-outline-light btn-sm" onclick="setChartRange('1Y')" id="btn-range-1Y">1 Ano</button>
+                        <button type="button" class="btn btn-outline-light btn-sm" onclick="setChartRange('3Y')" id="btn-range-3Y">3 Anos</button>
+                        <button type="button" class="btn btn-outline-light btn-sm" onclick="setChartRange('5Y')" id="btn-range-5Y">5 Anos</button>
+                        <button type="button" class="btn btn-light btn-sm active" onclick="setChartRange('ALL')" id="btn-range-ALL">Todo</button>
+                    </div>
                 </div>
                 <div class="card-body">
                     <div id="portfolioChart" style="width:100%; height:400px;">
@@ -161,7 +190,7 @@
                             <div class="spinner-border" role="status">
                                 <span class="visually-hidden">Cargando...</span>
                             </div>
-                            <p class="mt-2">Cargando datos del gráfico...</p>
+                            <p class="mt-2">Cargando datos del grafico...</p>
                         </div>
                     </div>
                 </div>
@@ -173,16 +202,16 @@
     <div class="row mb-4">
         <div class="col-md-6">
             <div class="card shadow-sm">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="bi bi-pie-chart-fill"></i> Composición por Ticker</h5>
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-pie-chart-fill"></i> Diversificacion por Clase de Activo</h5>
                 </div>
                 <div class="card-body">
-                    <div id="ticker-pie-chart" style="height:350px;">
+                    <div id="asset-class-pie-chart" style="height:350px;">
                         <div class="text-center text-muted py-5">
                             <div class="spinner-border spinner-border-sm" role="status">
                                 <span class="visually-hidden">Cargando...</span>
                             </div>
-                            <p class="mt-2">Cargando gráfico...</p>
+                            <p class="mt-2">Cargando grafico...</p>
                         </div>
                     </div>
                 </div>
@@ -192,7 +221,7 @@
         <div class="col-md-6">
             <div class="card shadow-sm">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="bi bi-bank"></i> Composición por Custodio</h5>
+                    <h5 class="mb-0"><i class="bi bi-bank"></i> Composicion por Custodio</h5>
                 </div>
                 <div class="card-body">
                     <div id="custodian-pie-chart" style="height:350px;">
@@ -200,7 +229,7 @@
                             <div class="spinner-border spinner-border-sm" role="status">
                                 <span class="visually-hidden">Cargando...</span>
                             </div>
-                            <p class="mt-2">Cargando gráfico...</p>
+                            <p class="mt-2">Cargando grafico...</p>
                         </div>
                     </div>
                 </div>

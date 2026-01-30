@@ -24,6 +24,8 @@ def init_db():
     migrate_add_custodians()
     migrate_add_custodian_id_column()
     migrate_add_crypto_fields()
+    migrate_add_asset_class_column()
+    migrate_add_swensen_config()
     print(f"Database initialized at: {DATABASE_PATH}")
 
 
@@ -176,3 +178,108 @@ def migrate_add_crypto_fields():
     except Exception as e:
         logger.error(f"Error during crypto fields migration: {str(e)}")
         # Don't raise - allow app to continue even if migration fails
+
+
+def migrate_add_asset_class_column():
+    """
+    Migration to add asset_class column to transactions table for Swensen classification.
+    Also classifies existing transactions.
+    This is idempotent - safe to run multiple times.
+    """
+    try:
+        with engine.connect() as conn:
+            # Check if column already exists
+            result = conn.execute(text("PRAGMA table_info(transactions)"))
+            columns = [row[1] for row in result]
+
+            if 'asset_class' not in columns:
+                logger.info("Adding 'asset_class' column to transactions table")
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN asset_class TEXT"))
+                conn.commit()
+                logger.info("Migration completed: 'asset_class' column added")
+
+                # Classify existing transactions
+                classify_existing_transactions()
+            else:
+                logger.debug("'asset_class' column already exists, skipping migration")
+
+    except Exception as e:
+        logger.error(f"Error during asset_class migration: {str(e)}")
+        # Don't raise - allow app to continue even if migration fails
+
+
+def classify_existing_transactions():
+    """
+    Classify existing transactions that don't have an asset_class.
+    """
+    try:
+        # Import here to avoid circular dependency
+        from utils_classification import classify_asset
+
+        db = SessionLocal()
+        try:
+            # Get all transactions without asset_class
+            result = db.execute(
+                text("SELECT id, ticker, market, asset_type FROM transactions WHERE asset_class IS NULL")
+            )
+            rows = result.fetchall()
+
+            if not rows:
+                logger.debug("No transactions need classification")
+                return
+
+            logger.info(f"Classifying {len(rows)} existing transactions...")
+
+            for row in rows:
+                trans_id = row[0]
+                ticker = row[1]
+                market = row[2] or 'MX'
+                asset_type = row[3] or 'stock'
+
+                asset_class = classify_asset(ticker, market, asset_type)
+
+                if asset_class:
+                    db.execute(
+                        text("UPDATE transactions SET asset_class = :asset_class WHERE id = :id"),
+                        {"asset_class": asset_class, "id": trans_id}
+                    )
+
+            db.commit()
+            logger.info(f"Successfully classified {len(rows)} transactions")
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error classifying existing transactions: {str(e)}")
+
+
+def migrate_add_swensen_config():
+    """
+    Migration to create swensen_config table and populate with default values.
+    This is idempotent - safe to run multiple times.
+    """
+    try:
+        from models import SwensenConfig
+        from utils_classification import initialize_default_swensen_config
+
+        # Create all tables (including swensen_config if it doesn't exist)
+        Base.metadata.create_all(bind=engine)
+
+        db = SessionLocal()
+        try:
+            # Check if we need to add default config
+            existing_count = db.query(SwensenConfig).count()
+
+            if existing_count == 0:
+                logger.info("Initializing default Swensen configuration...")
+                initialize_default_swensen_config(db)
+                logger.info("Swensen configuration initialized with default values")
+            else:
+                logger.debug(f"Swensen config table already has {existing_count} entries")
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error during Swensen config migration: {str(e)}")

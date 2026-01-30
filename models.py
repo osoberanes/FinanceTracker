@@ -56,6 +56,13 @@ class Transaction(Base):
     notes = Column(Text)  # Future
     generates_staking = Column(Boolean, default=False)  # For ETH, SOL and other staking cryptos
     staking_rewards = Column(Numeric(18, 8), default=0.0)  # Accumulated staking rewards in crypto units
+
+    # Clasificación Swensen - asset class for diversification analysis
+    asset_class = Column(String(30), nullable=True)
+    # Valores posibles: acciones_mexico, acciones_usa, acciones_internacionales,
+    # mercados_emergentes, fibras, cetes, bonos_gubernamentales, udibonos,
+    # oro_materias_primas, criptomonedas
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -76,9 +83,38 @@ class Transaction(Base):
             'notes': self.notes,
             'generates_staking': self.generates_staking,
             'staking_rewards': float(self.staking_rewards) if self.staking_rewards else 0.0,
+            'asset_class': self.asset_class,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
         }
 
     def __repr__(self):
         return f"<Transaction(ticker='{self.ticker}', date='{self.purchase_date}', quantity={self.quantity})>"
+
+
+class SwensenConfig(Base):
+    """Configuracion personalizada del modelo Swensen para diversificacion."""
+
+    __tablename__ = 'swensen_config'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    asset_class = Column(String(30), nullable=False, unique=True)
+    target_percentage = Column(Numeric(5, 2), nullable=False, default=0)
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<SwensenConfig {self.asset_class}: {self.target_percentage}%>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'asset_class': self.asset_class,
+            'target_percentage': float(self.target_percentage) if self.target_percentage else 0,
+            'is_active': self.is_active,
+            'notes': self.notes,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
+        }

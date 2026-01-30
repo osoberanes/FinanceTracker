@@ -2,13 +2,26 @@
 
 from flask import Flask, render_template, request, jsonify
 from database import init_db, get_db, close_db
-from models import Transaction, Custodian
+from models import Transaction, Custodian, SwensenConfig
 from utils import (
     get_current_price,
     validate_ticker,
     calculate_portfolio_evolution,
     calculate_weighted_average_price,
     calculate_gain_loss
+)
+from utils_classification import (
+    classify_asset,
+    get_asset_class_info,
+    get_all_asset_classes,
+    get_swensen_ideal_allocation,
+    calculate_rebalancing_recommendations,
+    get_swensen_target_allocation_from_db,
+    initialize_default_swensen_config,
+    calculate_rebalancing_recommendations_with_db,
+    calculate_investment_allocation,
+    get_asset_class_color,
+    get_all_asset_class_colors
 )
 from datetime import datetime
 from sqlalchemy import func
@@ -161,6 +174,11 @@ def create_transaction():
         generates_staking = data.get('generates_staking', False)
         staking_rewards = float(data.get('staking_rewards', 0.0))
 
+        # Clasificacion: usar manual si se provee, sino auto-detectar
+        asset_class = data.get('asset_class')
+        if not asset_class or asset_class == '':
+            asset_class = classify_asset(ticker, market, asset_type)
+
         # Create transaction
         db = get_db()
         transaction = Transaction(
@@ -173,7 +191,8 @@ def create_transaction():
             currency='MXN',
             custodian_id=data.get('custodian_id'),
             generates_staking=generates_staking,
-            staking_rewards=staking_rewards
+            staking_rewards=staking_rewards,
+            asset_class=asset_class
         )
 
         db.add(transaction)
@@ -686,6 +705,634 @@ def portfolio_by_custodian():
 
     except Exception as e:
         logger.error(f"Error fetching portfolio by custodian: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# PAGINA DE ANALISIS SWENSEN
+# ============================================
+
+@app.route('/analysis')
+def analysis():
+    """Pagina de analisis de diversificacion Swensen"""
+    return render_template('analysis.html')
+
+
+# ============================================
+# API DE ANALISIS DE DIVERSIFICACION
+# ============================================
+
+@app.route('/api/portfolio/by-asset-class', methods=['GET'])
+def get_portfolio_by_asset_class():
+    """
+    Obtiene diversificacion por clase de activo (Swensen).
+
+    Returns:
+        JSON con analisis de diversificacion por asset_class
+    """
+    try:
+        db = get_db()
+        transactions = db.query(Transaction).all()
+
+        if not transactions:
+            return jsonify({
+                'asset_classes': [],
+                'total_value': 0
+            })
+
+        asset_class_summary = {}
+        total_value = 0
+
+        for trans in transactions:
+            # Clasificar si no esta clasificado
+            if not trans.asset_class:
+                trans.asset_class = classify_asset(trans.ticker, trans.market, trans.asset_type)
+                db.commit()
+
+            asset_class = trans.asset_class or 'sin_clasificar'
+
+            if asset_class not in asset_class_summary:
+                asset_class_summary[asset_class] = {
+                    'value': 0,
+                    'invested': 0,
+                    'positions': 0,
+                    'tickers': []
+                }
+
+            current_price = get_current_price(trans.ticker)
+            if current_price:
+                current_value = current_price * float(trans.quantity)
+                invested = float(trans.purchase_price) * float(trans.quantity)
+
+                asset_class_summary[asset_class]['value'] += current_value
+                asset_class_summary[asset_class]['invested'] += invested
+                asset_class_summary[asset_class]['positions'] += 1
+
+                if trans.ticker not in asset_class_summary[asset_class]['tickers']:
+                    asset_class_summary[asset_class]['tickers'].append(trans.ticker)
+
+                total_value += current_value
+
+        # Calcular porcentajes
+        result = []
+        for asset_class, data in asset_class_summary.items():
+            info = get_asset_class_info(asset_class)
+            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            gain_loss = data['value'] - data['invested']
+            gain_loss_pct = (gain_loss / data['invested'] * 100) if data['invested'] > 0 else 0
+
+            result.append({
+                'asset_class': asset_class,
+                'name': info['name'],
+                'emoji': info['emoji'],
+                'description': info['description'],
+                'value': round(data['value'], 2),
+                'invested': round(data['invested'], 2),
+                'percentage': round(percentage, 2),
+                'swensen_target': info['swensen_target'],
+                'diff': round(percentage - info['swensen_target'], 2),
+                'gain_loss': round(gain_loss, 2),
+                'gain_loss_pct': round(gain_loss_pct, 2),
+                'positions': data['positions'],
+                'tickers': data['tickers']
+            })
+
+        # Ordenar por valor descendente
+        result.sort(key=lambda x: x['value'], reverse=True)
+
+        return jsonify({
+            'asset_classes': result,
+            'total_value': round(total_value, 2)
+        })
+
+    except Exception as e:
+        logger.error(f"Error en diversificacion por asset class: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/rebalancing-recommendations', methods=['GET'])
+def get_rebalancing_recommendations():
+    """
+    Obtiene recomendaciones de rebalanceo segun modelo Swensen.
+
+    Returns:
+        JSON con recomendaciones de ajuste
+    """
+    try:
+        db = get_db()
+        transactions = db.query(Transaction).all()
+
+        if not transactions:
+            return jsonify({
+                'recommendations': [],
+                'total_value': 0,
+                'message': 'No hay transacciones en el portfolio'
+            })
+
+        # Calcular allocation actual
+        asset_class_summary = {}
+        total_value = 0
+
+        for trans in transactions:
+            if not trans.asset_class:
+                trans.asset_class = classify_asset(trans.ticker, trans.market, trans.asset_type)
+                db.commit()
+
+            asset_class = trans.asset_class or 'sin_clasificar'
+
+            if asset_class not in asset_class_summary:
+                asset_class_summary[asset_class] = {'value': 0}
+
+            current_price = get_current_price(trans.ticker)
+            if current_price:
+                current_value = current_price * float(trans.quantity)
+                asset_class_summary[asset_class]['value'] += current_value
+                total_value += current_value
+
+        # Calcular porcentajes
+        current_allocation = {}
+        for asset_class, data in asset_class_summary.items():
+            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            current_allocation[asset_class] = {
+                'percentage': percentage,
+                'value': data['value']
+            }
+
+        # Calcular recomendaciones
+        recommendations = calculate_rebalancing_recommendations(
+            current_allocation,
+            total_value
+        )
+
+        return jsonify({
+            'recommendations': recommendations,
+            'total_value': round(total_value, 2)
+        })
+
+    except Exception as e:
+        logger.error(f"Error en recomendaciones de rebalanceo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/portfolio/swensen-ideal', methods=['GET'])
+def get_swensen_ideal():
+    """
+    Obtiene el modelo ideal de Swensen adaptado a Mexico.
+
+    Returns:
+        JSON con la asignacion ideal por clase de activo
+    """
+    try:
+        ideal_allocation = get_swensen_ideal_allocation()
+        all_classes = get_all_asset_classes()
+
+        result = []
+        for asset_class, target_pct in ideal_allocation.items():
+            info = all_classes.get(asset_class, {})
+            result.append({
+                'asset_class': asset_class,
+                'name': info.get('name', asset_class),
+                'emoji': info.get('emoji', ''),
+                'description': info.get('description', ''),
+                'target_percentage': target_pct
+            })
+
+        # Ordenar por porcentaje descendente
+        result.sort(key=lambda x: x['target_percentage'], reverse=True)
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error obteniendo modelo Swensen: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# API DE CONFIGURACION SWENSEN PERSONALIZADA
+# ============================================
+
+@app.route('/api/swensen-config', methods=['GET'])
+def get_swensen_config():
+    """
+    Obtiene configuracion actual de Swensen (personalizada o por defecto).
+
+    Returns:
+        JSON con configuracion por clase de activo
+    """
+    try:
+        db = get_db()
+        configs = db.query(SwensenConfig).all()
+        all_classes = get_all_asset_classes()
+
+        result = []
+        for asset_class, info in all_classes.items():
+            config = next((c for c in configs if c.asset_class == asset_class), None)
+
+            result.append({
+                'asset_class': asset_class,
+                'name': info['name'],
+                'emoji': info['emoji'],
+                'description': info['description'],
+                'target_percentage': float(config.target_percentage) if config else info['swensen_target'],
+                'is_active': config.is_active if config else True,
+                'notes': config.notes if config else ''
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error obteniendo config Swensen: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/swensen-config', methods=['POST'])
+def save_swensen_config():
+    """
+    Guarda configuracion personalizada de Swensen.
+
+    Request JSON:
+        {
+            "configs": [
+                {"asset_class": "acciones_usa", "target_percentage": 35, "is_active": true, "notes": ""}
+            ]
+        }
+
+    Returns:
+        JSON con mensaje de exito o error
+    """
+    try:
+        db = get_db()
+        data = request.get_json()
+        configs = data.get('configs', [])
+
+        # Validar suma = 100%
+        total = sum(c['target_percentage'] for c in configs if c.get('is_active', True))
+        if abs(total - 100) > 0.5:
+            return jsonify({'error': f'Los porcentajes deben sumar 100%. Actual: {total:.1f}%'}), 400
+
+        # Actualizar o crear
+        for config_data in configs:
+            config = db.query(SwensenConfig).filter_by(
+                asset_class=config_data['asset_class']
+            ).first()
+
+            if config:
+                config.target_percentage = config_data['target_percentage']
+                config.is_active = config_data.get('is_active', True)
+                config.notes = config_data.get('notes', '')
+                config.updated_at = datetime.utcnow()
+            else:
+                config = SwensenConfig(
+                    asset_class=config_data['asset_class'],
+                    target_percentage=config_data['target_percentage'],
+                    is_active=config_data.get('is_active', True),
+                    notes=config_data.get('notes', '')
+                )
+                db.add(config)
+
+        db.commit()
+        logger.info("Swensen configuration saved successfully")
+
+        return jsonify({'message': 'Configuracion guardada exitosamente'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error guardando config Swensen: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/swensen-config/reset', methods=['POST'])
+def reset_swensen_config():
+    """
+    Restaura configuracion Swensen a valores por defecto.
+
+    Returns:
+        JSON con mensaje de exito o error
+    """
+    try:
+        db = get_db()
+
+        # Eliminar configuracion actual
+        db.query(SwensenConfig).delete()
+        db.commit()
+
+        # Inicializar por defecto
+        initialize_default_swensen_config(db)
+
+        logger.info("Swensen configuration reset to defaults")
+
+        return jsonify({'message': 'Configuracion restaurada a valores por defecto'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error reseteando config Swensen: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# API CALCULADORA DE INVERSION
+# ============================================
+
+@app.route('/api/investment-calculator', methods=['POST'])
+def calculate_investment():
+    """
+    Calcula como distribuir nueva inversion para acercarse al modelo ideal.
+
+    Request JSON:
+        {
+            "amount": 10000  // Monto a invertir
+        }
+
+    Returns:
+        JSON con distribucion sugerida por clase de activo
+    """
+    try:
+        data = request.get_json()
+        new_investment = float(data.get('amount', 0))
+
+        if new_investment <= 0:
+            return jsonify({'error': 'El monto debe ser mayor a 0'}), 400
+
+        db = get_db()
+        transactions = db.query(Transaction).all()
+
+        if not transactions:
+            # Si no hay transacciones, distribuir segun modelo ideal
+            ideal = get_swensen_target_allocation_from_db(db)
+            distribution = []
+
+            for asset_class, target_pct in ideal.items():
+                if target_pct > 0:
+                    info = get_asset_class_info(asset_class)
+                    suggested_amount = (target_pct / 100) * new_investment
+                    distribution.append({
+                        'asset_class': asset_class,
+                        'name': info['name'],
+                        'emoji': info['emoji'],
+                        'current_value': 0,
+                        'ideal_future_value': suggested_amount,
+                        'deficit': suggested_amount,
+                        'suggested_amount': round(suggested_amount, 2),
+                        'suggested_pct': target_pct
+                    })
+
+            return jsonify({
+                'new_investment': new_investment,
+                'current_total': 0,
+                'future_total': new_investment,
+                'distribution': distribution
+            })
+
+        # Calcular distribucion actual
+        asset_class_summary = {}
+        total_value = 0
+
+        for trans in transactions:
+            if not trans.asset_class:
+                trans.asset_class = classify_asset(trans.ticker, trans.market, trans.asset_type)
+                db.commit()
+
+            asset_class = trans.asset_class or 'sin_clasificar'
+
+            if asset_class not in asset_class_summary:
+                asset_class_summary[asset_class] = {'value': 0}
+
+            current_price = get_current_price(trans.ticker)
+            if current_price:
+                current_value = current_price * float(trans.quantity)
+                asset_class_summary[asset_class]['value'] += current_value
+                total_value += current_value
+
+        # Preparar allocation actual
+        current_allocation = {}
+        for asset_class, data in asset_class_summary.items():
+            percentage = (data['value'] / total_value * 100) if total_value > 0 else 0
+            current_allocation[asset_class] = {
+                'percentage': percentage,
+                'value': data['value']
+            }
+
+        # Calcular distribucion
+        distribution = calculate_investment_allocation(
+            new_investment,
+            current_allocation,
+            total_value,
+            db
+        )
+
+        return jsonify({
+            'new_investment': new_investment,
+            'current_total': round(total_value, 2),
+            'future_total': round(total_value + new_investment, 2),
+            'distribution': distribution
+        })
+
+    except Exception as e:
+        logger.error(f"Error en calculadora de inversion: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# API DE CLASIFICACIONES (ADMIN)
+# ============================================
+
+@app.route('/api/classifications', methods=['GET'])
+def get_classifications():
+    """
+    Obtiene lista de transacciones agrupadas por ticker con su clasificacion.
+
+    Returns:
+        JSON con lista de tickers y su clasificacion actual
+    """
+    try:
+        db = get_db()
+
+        # Obtener tickers unicos con su clasificacion
+        results = db.query(
+            Transaction.ticker,
+            Transaction.market,
+            Transaction.asset_type,
+            Transaction.asset_class
+        ).distinct().all()
+
+        classifications = []
+        for ticker, market, asset_type, asset_class in results:
+            info = get_asset_class_info(asset_class) if asset_class else {
+                'name': 'Sin Clasificar',
+                'emoji': '?',
+                'color': '#6C757D'
+            }
+
+            # Contar transacciones con este ticker
+            count = db.query(Transaction).filter(Transaction.ticker == ticker).count()
+
+            classifications.append({
+                'ticker': ticker,
+                'market': market,
+                'asset_type': asset_type,
+                'asset_class': asset_class,
+                'asset_class_name': info.get('name', 'Sin Clasificar'),
+                'asset_class_emoji': info.get('emoji', '?'),
+                'asset_class_color': info.get('color', '#6C757D'),
+                'transaction_count': count
+            })
+
+        # Ordenar por ticker
+        classifications.sort(key=lambda x: x['ticker'])
+
+        return jsonify(classifications)
+
+    except Exception as e:
+        logger.error(f"Error obteniendo clasificaciones: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/classifications/<ticker>', methods=['PUT'])
+def update_classification(ticker):
+    """
+    Actualiza la clasificacion de todas las transacciones de un ticker.
+
+    Args:
+        ticker: El ticker a reclasificar
+
+    Request JSON:
+        {
+            "asset_class": "acciones_usa"
+        }
+
+    Returns:
+        JSON con mensaje de exito o error
+    """
+    try:
+        db = get_db()
+        data = request.get_json()
+
+        new_asset_class = data.get('asset_class')
+
+        # Validar que la clase de activo sea valida
+        all_classes = get_all_asset_classes()
+        if new_asset_class and new_asset_class not in all_classes:
+            return jsonify({'error': f'Clase de activo invalida: {new_asset_class}'}), 400
+
+        # Actualizar todas las transacciones de este ticker
+        updated = db.query(Transaction).filter(
+            Transaction.ticker == ticker
+        ).update({
+            'asset_class': new_asset_class,
+            'updated_at': datetime.utcnow()
+        })
+
+        db.commit()
+
+        logger.info(f"Reclasificacion: {ticker} -> {new_asset_class} ({updated} transacciones)")
+
+        return jsonify({
+            'message': f'Clasificacion actualizada para {ticker}',
+            'ticker': ticker,
+            'new_asset_class': new_asset_class,
+            'transactions_updated': updated
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error reclasificando {ticker}: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/classifications/auto-classify', methods=['POST'])
+def auto_classify_all():
+    """
+    Reclasifica automaticamente todas las transacciones sin clasificar
+    o todas si se especifica force=true.
+
+    Request JSON:
+        {
+            "force": false  // Si true, reclasifica todo incluyendo ya clasificados
+        }
+
+    Returns:
+        JSON con resultado de la reclasificacion
+    """
+    try:
+        db = get_db()
+        data = request.get_json() or {}
+        force = data.get('force', False)
+
+        if force:
+            # Reclasificar todas
+            transactions = db.query(Transaction).all()
+        else:
+            # Solo las sin clasificar
+            transactions = db.query(Transaction).filter(
+                (Transaction.asset_class == None) | (Transaction.asset_class == '')
+            ).all()
+
+        reclassified = 0
+        for trans in transactions:
+            new_class = classify_asset(trans.ticker, trans.market, trans.asset_type)
+            if new_class != trans.asset_class:
+                trans.asset_class = new_class
+                reclassified += 1
+
+        db.commit()
+
+        logger.info(f"Auto-clasificacion completada: {reclassified} transacciones reclasificadas")
+
+        return jsonify({
+            'message': f'Auto-clasificacion completada',
+            'total_processed': len(transactions),
+            'reclassified': reclassified
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error en auto-clasificacion: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/asset-classes', methods=['GET'])
+def get_asset_classes_api():
+    """
+    Obtiene todas las clases de activo disponibles con sus propiedades.
+
+    Returns:
+        JSON con lista de clases de activo
+    """
+    try:
+        all_classes = get_all_asset_classes()
+        result = []
+
+        for asset_class, info in all_classes.items():
+            result.append({
+                'code': asset_class,
+                'name': info['name'],
+                'emoji': info['emoji'],
+                'description': info['description'],
+                'color': info.get('color', '#6C757D'),
+                'swensen_target': info['swensen_target']
+            })
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Error obteniendo clases de activo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/asset-class-colors', methods=['GET'])
+def get_asset_class_colors_api():
+    """
+    Obtiene la paleta de colores de todas las clases de activo.
+
+    Returns:
+        JSON con {asset_class: color_hex}
+    """
+    try:
+        colors = get_all_asset_class_colors()
+        return jsonify(colors)
+
+    except Exception as e:
+        logger.error(f"Error obteniendo colores: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

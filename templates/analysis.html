@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}Analisis Swensen - Portfolio Tracker{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">
+        <i class="bi bi-pie-chart"></i> Analisis de Portfolio
+    </h1>
+
+    <!-- Tabs de navegacion -->
+    <ul class="nav nav-tabs mb-4" id="analysisTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="custodian-tab" data-bs-toggle="tab"
+                    data-bs-target="#custodian-content" type="button" role="tab">
+                <i class="bi bi-bank"></i> Por Custodio
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="swensen-tab" data-bs-toggle="tab"
+                    data-bs-target="#swensen-content" type="button" role="tab">
+                <i class="bi bi-bullseye"></i> Diversificacion Swensen
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="recommendations-tab" data-bs-toggle="tab"
+                    data-bs-target="#recommendations-content" type="button" role="tab">
+                <i class="bi bi-lightbulb"></i> Recomendaciones
+            </button>
+        </li>
+    </ul>
+
+    <!-- Contenido de tabs -->
+    <div class="tab-content" id="analysisTabContent">
+
+        <!-- TAB 1: Resumen por Custodio -->
+        <div class="tab-pane fade show active" id="custodian-content" role="tabpanel">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bank2"></i> Resumen por Custodio
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Tabla -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="custodian-table">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Custodio</th>
+                                    <th class="text-end">Posiciones</th>
+                                    <th class="text-end">Invertido</th>
+                                    <th class="text-end">Valor Actual</th>
+                                    <th class="text-end">G/P</th>
+                                    <th class="text-end">%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="custodian-tbody">
+                                <tr>
+                                    <td colspan="6" class="text-center py-4">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Cargando...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            <tfoot id="custodian-tfoot" class="table-secondary fw-bold">
+                            </tfoot>
+                        </table>
+                    </div>
+
+                    <!-- Grafico -->
+                    <div class="mt-4">
+                        <h6><i class="bi bi-pie-chart-fill"></i> Distribucion por Custodio</h6>
+                        <div id="custodian-pie-chart" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: Diversificacion Swensen -->
+        <div class="tab-pane fade" id="swensen-content" role="tabpanel">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bullseye"></i> Diversificacion por Clase de Activo (Modelo Swensen)
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <!-- Info del modelo -->
+                    <div class="alert alert-info mb-4">
+                        <h6><i class="bi bi-info-circle"></i> Modelo Swensen Adaptado a Mexico</h6>
+                        <p class="mb-0 small">
+                            El modelo de David Swensen (Yale Endowment) adaptado para inversionistas mexicanos.
+                            Considera acciones locales, FIBRAs como alternativa inmobiliaria, y CETES/Bonos gubernamentales.
+                        </p>
+                    </div>
+
+                    <!-- Tabla -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="swensen-table">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Clase de Activo</th>
+                                    <th class="text-end">Valor</th>
+                                    <th class="text-end">% Actual</th>
+                                    <th class="text-end">% Meta</th>
+                                    <th class="text-end">Diferencia</th>
+                                    <th class="text-end">G/P</th>
+                                    <th>Tickers</th>
+                                </tr>
+                            </thead>
+                            <tbody id="swensen-tbody">
+                                <tr>
+                                    <td colspan="7" class="text-center py-4">
+                                        <div class="spinner-border text-success" role="status">
+                                            <span class="visually-hidden">Cargando...</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Graficos lado a lado -->
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="bi bi-pie-chart"></i> Tu Portfolio Actual</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="swensen-current-pie" style="height: 350px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="bi bi-bullseye"></i> Modelo Ideal Swensen</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="swensen-ideal-pie" style="height: 350px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Grafico de barras comparativo -->
+                    <div class="mt-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="bi bi-bar-chart"></i> Comparacion: Actual vs Ideal</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="swensen-comparison-bar" style="height: 450px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: Recomendaciones -->
+        <div class="tab-pane fade" id="recommendations-content" role="tabpanel">
+            <!-- Calculadora de Nueva Inversion -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-calculator"></i> Calculadora de Nueva Inversion
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">
+                        Tienes capital nuevo para invertir? Calcula como distribuirlo para acercarte al modelo ideal.
+                    </p>
+
+                    <div class="row align-items-end">
+                        <div class="col-md-4">
+                            <label for="investment-amount" class="form-label">
+                                <strong>Monto a invertir (MXN)</strong>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number"
+                                       class="form-control form-control-lg"
+                                       id="investment-amount"
+                                       placeholder="10,000"
+                                       min="1"
+                                       step="100">
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-primary btn-lg w-100" onclick="calculateInvestment()">
+                                <i class="bi bi-calculator"></i> Calcular Distribucion
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-secondary btn-lg w-100" onclick="clearInvestmentResult()">
+                                <i class="bi bi-x-circle"></i> Limpiar
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Resultado -->
+                    <div id="investment-result" class="mt-4" style="display: none;">
+                        <hr>
+                        <h6><i class="bi bi-pie-chart-fill"></i> Distribucion Sugerida:</h6>
+                        <div id="investment-distribution"></div>
+
+                        <!-- Grafico -->
+                        <div class="row mt-3">
+                            <div class="col-md-8 offset-md-2">
+                                <div id="investment-pie-chart" style="height: 350px;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recomendaciones de Rebalanceo -->
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <h5 class="mb-0">
+                        <i class="bi bi-lightbulb"></i> Estado Actual del Portfolio
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div id="recommendations-container">
+                        <div class="text-center py-4">
+                            <div class="spinner-border text-warning" role="status">
+                                <span class="visually-hidden">Cargando...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/analysis.js') }}"></script>
+{% endblock %}

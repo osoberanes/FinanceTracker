@@ -17,9 +17,21 @@
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="classifications-tab" data-bs-toggle="tab"
+                            data-bs-target="#classifications" type="button" role="tab">
+                        <i class="bi bi-tags"></i> Clasificaciones
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="swensen-tab" data-bs-toggle="tab"
+                            data-bs-target="#swensen" type="button" role="tab">
+                        <i class="bi bi-bullseye"></i> Modelo Swensen
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
                     <button class="nav-link" id="preferences-tab" data-bs-toggle="tab"
                             data-bs-target="#preferences" type="button" role="tab">
-                        <i class="bi bi-palette"></i> Preferencias (Próximamente)
+                        <i class="bi bi-palette"></i> Preferencias (Proximamente)
                     </button>
                 </li>
             </ul>
@@ -68,11 +80,128 @@
                     </div>
                 </div>
 
+                <!-- TAB: CLASIFICACIONES -->
+                <div class="tab-pane fade" id="classifications" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-tags"></i> Clasificacion de Activos</h5>
+                            <button class="btn btn-light btn-sm" onclick="autoClassifyAll()">
+                                <i class="bi bi-magic"></i> Auto-clasificar Todo
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <strong><i class="bi bi-info-circle"></i> Administra las clasificaciones</strong><br>
+                                Aqui puedes ver y modificar la clasificacion de tus activos.
+                                La clasificacion afecta el analisis de diversificacion Swensen.
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="classifications-table">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Ticker</th>
+                                            <th>Mercado</th>
+                                            <th>Clasificacion Actual</th>
+                                            <th>Nueva Clasificacion</th>
+                                            <th>Transacciones</th>
+                                            <th>Accion</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="classifications-tbody">
+                                        <tr>
+                                            <td colspan="6" class="text-center py-4">
+                                                <div class="spinner-border spinner-border-sm text-info" role="status">
+                                                    <span class="visually-hidden">Cargando...</span>
+                                                </div>
+                                                Cargando clasificaciones...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="mt-3">
+                                <h6><i class="bi bi-palette"></i> Paleta de Colores</h6>
+                                <div id="color-palette" class="d-flex flex-wrap gap-2">
+                                    <!-- Se llena dinamicamente -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: MODELO SWENSEN -->
+                <div class="tab-pane fade" id="swensen" role="tabpanel">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0"><i class="bi bi-bullseye"></i> Configuracion del Modelo Swensen</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <strong><i class="bi bi-lightbulb"></i> Personaliza tu modelo ideal</strong><br>
+                                Ajusta los porcentajes objetivo segun tu perfil de riesgo y estrategia de inversion.
+                                Los cambios se reflejaran en el analisis y recomendaciones.
+                            </div>
+
+                            <div class="mb-3 d-flex gap-2">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="resetToDefaultSwensen()">
+                                    <i class="bi bi-arrow-counterclockwise"></i> Restaurar Valores por Defecto
+                                </button>
+                                <button class="btn btn-success btn-sm" onclick="saveSwensenConfig()">
+                                    <i class="bi bi-check-lg"></i> Guardar Cambios
+                                </button>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover" id="swensen-config-table">
+                                    <thead class="table-dark">
+                                        <tr>
+                                            <th>Clase de Activo</th>
+                                            <th style="width: 150px;">% Objetivo</th>
+                                            <th style="width: 100px;">Activo</th>
+                                            <th>Notas</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="swensen-config-tbody">
+                                        <tr>
+                                            <td colspan="4" class="text-center py-4">
+                                                <div class="spinner-border spinner-border-sm text-success" role="status">
+                                                    <span class="visually-hidden">Cargando...</span>
+                                                </div>
+                                                Cargando configuracion...
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                    <tfoot class="table-secondary">
+                                        <tr>
+                                            <td><strong>TOTAL</strong></td>
+                                            <td>
+                                                <span id="swensen-total" class="fw-bold">0</span>%
+                                                <span id="swensen-total-status" class="ms-2"></span>
+                                            </td>
+                                            <td colspan="2"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+
+                            <div class="alert alert-warning mt-3">
+                                <small>
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    <strong>Nota:</strong> La suma de todos los porcentajes de clases activas debe ser 100%.
+                                    Si no usas alguna clase de activo, dejala en 0% o desactivala.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- TAB: PREFERENCIAS (futuro) -->
                 <div class="tab-pane fade" id="preferences" role="tabpanel">
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i>
-                        Funcionalidad próximamente: Configuración de moneda, tema, notificaciones, etc.
+                        Funcionalidad proximamente: Configuracion de moneda, tema, notificaciones, etc.
                     </div>
                 </div>
             </div>
