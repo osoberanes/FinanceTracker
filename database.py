@@ -28,6 +28,9 @@ def init_db():
     migrate_add_swensen_config()
     print(f"Database initialized at: {DATABASE_PATH}")
 
+    # Intentar cargar datos de ejemplo (solo si LOAD_SAMPLE_DATA=true)
+    load_sample_data()
+
 
 def migrate_add_market_column():
     """
@@ -283,3 +286,107 @@ def migrate_add_swensen_config():
 
     except Exception as e:
         logger.error(f"Error during Swensen config migration: {str(e)}")
+
+
+def load_sample_data():
+    """
+    Carga transacciones de ejemplo para demo/testing
+
+    Control de activación:
+    - PRODUCCIÓN: No configurar LOAD_SAMPLE_DATA (o =false) → Base de datos vacía
+    - DEMO/TEST: Configurar LOAD_SAMPLE_DATA=true → Carga datos de ejemplo
+
+    Solo carga datos si:
+    1. LOAD_SAMPLE_DATA=true en variables de entorno
+    2. La base de datos está vacía (no hay transacciones)
+    """
+    import os
+    from models import Transaction, Custodian
+    from datetime import datetime
+    from utils_classification import classify_asset
+
+    # Verificar variable de entorno
+    load_samples = os.environ.get('LOAD_SAMPLE_DATA', 'false').lower() == 'true'
+
+    if not load_samples:
+        print("ℹ️  LOAD_SAMPLE_DATA no está activado, saltando datos de ejemplo")
+        return
+
+    # Verificar si ya hay transacciones
+    db = SessionLocal()
+    try:
+        existing = db.query(Transaction).first()
+        if existing:
+            print("ℹ️  Base de datos ya tiene datos, saltando carga de ejemplos")
+            return
+
+        print("📊 Cargando datos de ejemplo (LOAD_SAMPLE_DATA=true)...")
+
+        # Obtener custodios
+        gbm = db.query(Custodian).filter_by(name='GBM').first()
+        bitso = db.query(Custodian).filter_by(name='Bitso').first()
+
+        if not gbm or not bitso:
+            print("⚠️  Custodios no encontrados, creando transacciones sin custodio")
+
+        # Transacciones de ejemplo
+        sample_transactions = [
+            {'date': '2025-11-26', 'ticker': 'NVONLMX', 'price': 895.94, 'qty': 5.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2025-09-29', 'ticker': 'PAXG', 'price': 70000.00, 'qty': 0.05, 'market': 'CRYPTO', 'custodian': bitso},
+            {'date': '2025-08-15', 'ticker': 'VWOMX', 'price': 976.00, 'qty': 15.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2025-08-15', 'ticker': 'SOL', 'price': 3522.84, 'qty': 0.0636, 'market': 'CRYPTO', 'custodian': bitso},
+            {'date': '2025-05-29', 'ticker': 'IAU.MX', 'price': 1208.00, 'qty': 12.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2025-05-27', 'ticker': 'ETH', 'price': 52103.75, 'qty': 0.0058, 'market': 'CRYPTO', 'custodian': bitso},
+            {'date': '2025-05-12', 'ticker': 'XRP', 'price': 52.38, 'qty': 13.17, 'market': 'CRYPTO', 'custodian': bitso},
+            {'date': '2025-02-01', 'ticker': 'ETH', 'price': 45000.00, 'qty': 0.0025, 'market': 'CRYPTO', 'custodian': bitso},
+            {'date': '2024-03-08', 'ticker': 'AGUILASCPO.MX', 'price': 27.07, 'qty': 30.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2023-07-13', 'ticker': 'FUNO11MX', 'price': 25.00, 'qty': 199.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2023-06-21', 'ticker': 'VOO.MX', 'price': 6955.95, 'qty': 3.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2023-05-31', 'ticker': 'VOO.MX', 'price': 6800.00, 'qty': 1.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2023-04-25', 'ticker': 'BTC', 'price': 502344.69, 'qty': 0.004, 'market': 'CRYPTO', 'custodian': bitso},
+        ]
+
+        # Crear transacciones
+        count = 0
+        for txn_data in sample_transactions:
+            try:
+                # Determinar asset_type
+                asset_type = 'crypto' if txn_data['market'] == 'CRYPTO' else 'stock'
+
+                # Clasificar asset_class
+                asset_class = classify_asset(
+                    txn_data['ticker'],
+                    txn_data['market'],
+                    asset_type
+                )
+
+                # Determinar si genera staking
+                generates_staking = txn_data['ticker'] in ['ETH', 'SOL']
+
+                transaction = Transaction(
+                    asset_type=asset_type,
+                    ticker=txn_data['ticker'],
+                    market=txn_data['market'],
+                    asset_class=asset_class,
+                    purchase_date=datetime.strptime(txn_data['date'], '%Y-%m-%d').date(),
+                    purchase_price=txn_data['price'],
+                    quantity=txn_data['qty'],
+                    custodian_id=txn_data['custodian'].id if txn_data['custodian'] else None,
+                    generates_staking=generates_staking,
+                    currency='MXN'
+                )
+
+                db.add(transaction)
+                count += 1
+
+            except Exception as e:
+                print(f"⚠️  Error creando transacción {txn_data['ticker']}: {e}")
+
+        db.commit()
+        print(f"✅ {count} transacciones de ejemplo cargadas exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error loading sample data: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
