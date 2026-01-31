@@ -1337,10 +1337,19 @@ def get_asset_class_colors_api():
 
 
 if __name__ == '__main__':
-    print("\n" + "="*50)
-    print("Portfolio Tracker - Starting Application")
-    print("="*50)
-    print("\nAccess the application at: http://localhost:5000")
-    print("\nPress CTRL+C to stop the server\n")
+    import os
 
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Get port from environment variable (for Render) or default to 5000
+    port = int(os.environ.get('PORT', 5000))
+
+    # Determine if running in production
+    is_production = os.environ.get('RENDER') is not None
+
+    if not is_production:
+        print("\n" + "="*50)
+        print("Portfolio Tracker - Starting Application")
+        print("="*50)
+        print(f"\nAccess the application at: http://localhost:{port}")
+        print("\nPress CTRL+C to stop the server\n")
+
+    app.run(host='0.0.0.0', port=port, debug=not is_production)

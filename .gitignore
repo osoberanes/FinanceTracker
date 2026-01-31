@@ -4,8 +4,8 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 venv/
+env/
 ENV/
 build/
 develop-eggs/
@@ -25,6 +25,8 @@ wheels/
 
 # Database
 *.db
+*.sqlite
+*.sqlite3
 portfolio.db
 
 # IDE
@@ -52,3 +54,12 @@ instance/
 # Cache
 .cache/
 *.cache
+
+# Sensitive files
+api-keys-reference.txt
+*.key
+.secret
+
+# Test files
+test_*.py
+*_test.py
