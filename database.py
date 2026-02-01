@@ -331,16 +331,16 @@ def load_sample_data():
 
         # Transacciones de ejemplo
         sample_transactions = [
-            {'date': '2025-11-26', 'ticker': 'NVONLMX', 'price': 895.94, 'qty': 5.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2025-11-26', 'ticker': 'NVONL.MX', 'price': 895.94, 'qty': 5.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2025-09-29', 'ticker': 'PAXG', 'price': 70000.00, 'qty': 0.05, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2025-08-15', 'ticker': 'VWOMX', 'price': 976.00, 'qty': 15.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2025-08-15', 'ticker': 'VWO.MX', 'price': 976.00, 'qty': 15.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2025-08-15', 'ticker': 'SOL', 'price': 3522.84, 'qty': 0.0636, 'market': 'CRYPTO', 'custodian': bitso},
             {'date': '2025-05-29', 'ticker': 'IAU.MX', 'price': 1208.00, 'qty': 12.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2025-05-27', 'ticker': 'ETH', 'price': 52103.75, 'qty': 0.0058, 'market': 'CRYPTO', 'custodian': bitso},
             {'date': '2025-05-12', 'ticker': 'XRP', 'price': 52.38, 'qty': 13.17, 'market': 'CRYPTO', 'custodian': bitso},
             {'date': '2025-02-01', 'ticker': 'ETH', 'price': 45000.00, 'qty': 0.0025, 'market': 'CRYPTO', 'custodian': bitso},
             {'date': '2024-03-08', 'ticker': 'AGUILASCPO.MX', 'price': 27.07, 'qty': 30.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2023-07-13', 'ticker': 'FUNO11MX', 'price': 25.00, 'qty': 199.0, 'market': 'MX', 'custodian': gbm},
+            {'date': '2023-07-13', 'ticker': 'FUNO11.MX', 'price': 25.00, 'qty': 199.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2023-06-21', 'ticker': 'VOO.MX', 'price': 6955.95, 'qty': 3.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2023-05-31', 'ticker': 'VOO.MX', 'price': 6800.00, 'qty': 1.0, 'market': 'MX', 'custodian': gbm},
             {'date': '2023-04-25', 'ticker': 'BTC', 'price': 502344.69, 'qty': 0.004, 'market': 'CRYPTO', 'custodian': bitso},

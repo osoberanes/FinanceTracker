@@ -206,6 +206,18 @@ document.getElementById('transactionForm').addEventListener('submit', async func
         }
     } else {
         ticker = document.getElementById('ticker').value.toUpperCase().trim();
+
+        // Auto-format Mexican tickers
+        if (market === 'MX') {
+            // Si el ticker termina en MX sin punto (ej: VWOMX), corregir
+            if (ticker.endsWith('MX') && !ticker.includes('.MX')) {
+                ticker = ticker.slice(0, -2) + '.MX';
+            }
+            // Si no tiene .MX al final, agregarlo
+            else if (!ticker.endsWith('.MX')) {
+                ticker = ticker + '.MX';
+            }
+        }
     }
 
     const purchaseDate = document.getElementById('purchase_date').value;
@@ -458,11 +470,21 @@ async function loadPortfolioChart(range = 'ALL') {
         const response = await fetch('/api/portfolio/history');
         const data = await response.json();
 
+        // Convert new format [{date, value}] to old format {dates: [], values: []}
+        let convertedData = data;
+        if (Array.isArray(data) && data.length > 0 && data[0].date) {
+            // New format - convert it
+            convertedData = {
+                dates: data.map(item => item.date),
+                values: data.map(item => item.value)
+            };
+        }
+
         // Store full data for range filtering
-        portfolioChartData = data;
+        portfolioChartData = convertedData;
 
         // Check if we have data
-        if (!data || !data.dates || data.dates.length === 0) {
+        if (!convertedData || !convertedData.dates || convertedData.dates.length === 0) {
             chartDiv.innerHTML = `
                 <div class="text-center text-muted py-5">
                     <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
@@ -764,6 +786,18 @@ async function saveEdit() {
         if (!ticker) {
             showMessage('Por favor ingresa el ticker', 'error');
             return;
+        }
+
+        // Auto-format Mexican tickers
+        if (market === 'MX') {
+            // Si el ticker termina en MX sin punto (ej: VWOMX), corregir
+            if (ticker.endsWith('MX') && !ticker.includes('.MX')) {
+                ticker = ticker.slice(0, -2) + '.MX';
+            }
+            // Si no tiene .MX al final, agregarlo
+            else if (!ticker.endsWith('.MX')) {
+                ticker = ticker + '.MX';
+            }
         }
     }
 

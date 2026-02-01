@@ -23,9 +23,11 @@ from utils_classification import (
     get_asset_class_color,
     get_all_asset_class_colors
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import func
+from collections import defaultdict
 import logging
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -137,13 +139,24 @@ def create_transaction():
                 return jsonify({'error': f'Invalid crypto ticker: {ticker}. Supported: BTC, ETH, SOL, XRP, PAXG'}), 400
         else:
             # Stock ticker formatting
-            # Remove .MX suffix if user added it
-            ticker = ticker.replace('.MX', '').replace('.US', '')
-
-            # Add appropriate suffix based on market
             if market == 'MX':
-                ticker = ticker + '.MX'
-            # For US market, no suffix needed
+                # Corregir formato de tickers mexicanos
+                if ticker.endswith('MX') and '.MX' not in ticker:
+                    # Tiene MX al final pero sin punto (ej: VWOMX)
+                    base_symbol = ticker[:-2]  # Quita "MX"
+                    ticker = f"{base_symbol}.MX"
+                    logger.info(f"Auto-corregido ticker mexicano: {data['ticker']} → {ticker}")
+                elif ticker.endswith('.MX'):
+                    # Ya está correcto
+                    pass
+                else:
+                    # No tiene .MX, agregarlo
+                    ticker = f"{ticker}.MX"
+                    logger.info(f"Agregado sufijo .MX: {data['ticker']} → {ticker}")
+            elif market == 'US':
+                # Remove .MX or .US suffix if present
+                ticker = ticker.replace('.MX', '').replace('.US', '')
+            # For other markets, use ticker as-is
 
             # Validate ticker exists
             if not validate_ticker(ticker):
@@ -322,27 +335,111 @@ def get_portfolio_summary():
 @app.route('/api/portfolio/history', methods=['GET'])
 def get_portfolio_history():
     """
-    Get portfolio value evolution over time.
+    Obtiene historial del portfolio (VERSIÓN SIMPLIFICADA)
+
+    Por ahora, retorna solo puntos basados en fechas de compra,
+    sin intentar calcular precios históricos diarios (muy costoso y causa timeouts)
 
     Returns:
-        JSON with dates and portfolio values for charting
+        JSON array con objetos {date, value}
     """
     try:
+        print("=== DEBUG: Inicio get_portfolio_history ===")
+
+        range_param = request.args.get('range', 'all')
+        print(f"DEBUG: range_param = {range_param}")
+
         db = get_db()
-        transactions = db.query(Transaction).all()
+
+        # Obtener todas las transacciones ordenadas
+        transactions = db.query(Transaction).order_by(Transaction.purchase_date).all()
 
         if not transactions:
-            return jsonify({'dates': [], 'values': []})
+            print("DEBUG: No hay transacciones, retornando array vacío")
+            return jsonify([])
 
-        # Convert to list of dicts
-        transactions_list = [trans.to_dict() for trans in transactions]
+        # Determinar rango de fechas
+        end_date = datetime.now().date()
+        first_txn_date = transactions[0].purchase_date
 
-        # Calculate portfolio evolution
-        evolution_data = calculate_portfolio_evolution(transactions_list)
+        if range_param == '1y':
+            start_date = end_date - timedelta(days=365)
+        elif range_param == '3y':
+            start_date = end_date - timedelta(days=365*3)
+        elif range_param == '5y':
+            start_date = end_date - timedelta(days=365*5)
+        else:  # 'all'
+            start_date = first_txn_date
 
-        return jsonify(evolution_data)
+        print(f"DEBUG: Rango de fechas: {start_date} a {end_date}")
+
+        # Filtrar transacciones en el rango
+        relevant_txns = [t for t in transactions if start_date <= t.purchase_date <= end_date]
+
+        if not relevant_txns:
+            print("DEBUG: No hay transacciones en el rango, retornando array vacío")
+            return jsonify([])
+
+        print(f"DEBUG: Procesando {len(relevant_txns)} transacciones")
+
+        # Crear puntos de historial basados en fechas de compra
+        # (sin intentar calcular precios diarios - muy costoso)
+        history = []
+        cumulative_invested = 0
+
+        # Agrupar por fecha
+        txns_by_date = defaultdict(list)
+        for txn in relevant_txns:
+            txns_by_date[txn.purchase_date].append(txn)
+
+        # Crear puntos de historial
+        for date in sorted(txns_by_date.keys()):
+            day_txns = txns_by_date[date]
+            for txn in day_txns:
+                cumulative_invested += float(txn.purchase_price) * float(txn.quantity)
+
+            history.append({
+                'date': date.strftime('%Y-%m-%d'),
+                'value': round(cumulative_invested, 2)
+            })
+
+        # Agregar punto actual con precios de mercado
+        current_value = 0
+        for txn in relevant_txns:
+            try:
+                current_price = get_current_price(txn.ticker)
+                if current_price:
+                    current_value += current_price * float(txn.quantity)
+                else:
+                    # Si falla obtener precio, usar precio de compra
+                    current_value += float(txn.purchase_price) * float(txn.quantity)
+            except Exception as price_error:
+                logger.warning(f"Error obteniendo precio para {txn.ticker}: {price_error}")
+                # Usar precio de compra como fallback
+                current_value += float(txn.purchase_price) * float(txn.quantity)
+
+        # Agregar punto final (hoy)
+        if history:
+            last_date = datetime.strptime(history[-1]['date'], '%Y-%m-%d').date()
+            if last_date < end_date:
+                history.append({
+                    'date': end_date.strftime('%Y-%m-%d'),
+                    'value': round(current_value, 2)
+                })
+            else:
+                # Actualizar último punto con valor actual
+                history[-1]['value'] = round(current_value, 2)
+
+        print(f"DEBUG: Retornando {len(history)} puntos de historial")
+        if history:
+            print(f"DEBUG: Primera entrada: {history[0]}")
+            print(f"DEBUG: Última entrada: {history[-1]}")
+
+        return jsonify(history)
 
     except Exception as e:
+        print(f"ERROR en get_portfolio_history: {str(e)}")
+        traceback.print_exc()
         logger.error(f"Error fetching portfolio history: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
