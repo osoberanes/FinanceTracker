@@ -474,27 +474,23 @@ def get_portfolio_summary():
 @app.route('/api/portfolio/history', methods=['GET'])
 def get_portfolio_history():
     """
-    Obtiene historial del portfolio (VERSIÓN SIMPLIFICADA)
+    Obtiene historial del portfolio con muestreo granular.
 
-    Por ahora, retorna solo puntos basados en fechas de compra,
-    sin intentar calcular precios históricos diarios (muy costoso y causa timeouts)
+    Genera puntos de datos interpolados entre transacciones para
+    una visualizacion mas suave del grafico de evolucion.
 
     Returns:
         JSON array con objetos {date, value}
     """
     try:
-        print("=== DEBUG: Inicio get_portfolio_history ===")
-
-        range_param = request.args.get('range', 'all')
-        print(f"DEBUG: range_param = {range_param}")
+        range_param = request.args.get('range', 'all').lower()
 
         db = get_db()
 
-        # Obtener todas las transacciones ordenadas
+        # Obtener todas las transacciones ordenadas por fecha
         transactions = db.query(Transaction).order_by(Transaction.purchase_date).all()
 
         if not transactions:
-            print("DEBUG: No hay transacciones, retornando array vacío")
             return jsonify([])
 
         # Determinar rango de fechas
@@ -510,76 +506,116 @@ def get_portfolio_history():
         else:  # 'all'
             start_date = first_txn_date
 
-        print(f"DEBUG: Rango de fechas: {start_date} a {end_date}")
+        # Asegurar que start_date no sea anterior a la primera transaccion
+        if start_date < first_txn_date:
+            start_date = first_txn_date
 
-        # Filtrar transacciones en el rango
-        relevant_txns = [t for t in transactions if start_date <= t.purchase_date <= end_date]
+        # Determinar frecuencia de muestreo segun el rango
+        total_days = (end_date - start_date).days
+        if total_days > 1825:  # Mas de 5 anos
+            sample_days = 7  # Semanal
+        elif total_days > 730:  # Mas de 2 anos
+            sample_days = 3  # Cada 3 dias
+        elif total_days > 365:  # Mas de 1 ano
+            sample_days = 2  # Cada 2 dias
+        else:
+            sample_days = 1  # Diario
 
-        if not relevant_txns:
-            print("DEBUG: No hay transacciones en el rango, retornando array vacío")
-            return jsonify([])
-
-        print(f"DEBUG: Procesando {len(relevant_txns)} transacciones")
-
-        # Crear puntos de historial basados en fechas de compra
-        # (sin intentar calcular precios diarios - muy costoso)
-        history = []
-        cumulative_invested = 0
-
-        # Agrupar por fecha
+        # Agrupar transacciones por fecha para acceso rapido
         txns_by_date = defaultdict(list)
-        for txn in relevant_txns:
+        for txn in transactions:
             txns_by_date[txn.purchase_date].append(txn)
 
-        # Crear puntos de historial
-        for date in sorted(txns_by_date.keys()):
-            day_txns = txns_by_date[date]
-            for txn in day_txns:
-                cumulative_invested += float(txn.purchase_price) * float(txn.quantity)
+        # Construir historial iterando por fechas
+        history = []
+        current_date = start_date
+        cumulative_invested = 0
 
+        # Primero, calcular el valor acumulado hasta start_date
+        # (transacciones anteriores al rango visible)
+        for txn in transactions:
+            if txn.purchase_date < start_date:
+                trans_type = txn.transaction_type or 'buy'
+                txn_value = float(txn.purchase_price) * float(txn.quantity)
+                if trans_type == 'buy':
+                    cumulative_invested += txn_value
+                else:  # sell
+                    cumulative_invested -= txn_value
+
+        # Iterar desde start_date hasta end_date
+        while current_date <= end_date:
+            # Procesar transacciones de este dia
+            if current_date in txns_by_date:
+                for txn in txns_by_date[current_date]:
+                    trans_type = txn.transaction_type or 'buy'
+                    txn_value = float(txn.purchase_price) * float(txn.quantity)
+                    if trans_type == 'buy':
+                        cumulative_invested += txn_value
+                    else:  # sell
+                        cumulative_invested -= txn_value
+
+            # Agregar punto al historial
             history.append({
-                'date': date.strftime('%Y-%m-%d'),
+                'date': current_date.strftime('%Y-%m-%d'),
                 'value': round(cumulative_invested, 2)
             })
 
-        # Agregar punto actual con precios de mercado
-        current_value = 0
-        for txn in relevant_txns:
-            try:
-                current_price = get_current_price(txn.ticker)
-                if current_price:
-                    current_value += current_price * float(txn.quantity)
-                else:
-                    # Si falla obtener precio, usar precio de compra
-                    current_value += float(txn.purchase_price) * float(txn.quantity)
-            except Exception as price_error:
-                logger.warning(f"Error obteniendo precio para {txn.ticker}: {price_error}")
-                # Usar precio de compra como fallback
-                current_value += float(txn.purchase_price) * float(txn.quantity)
+            # Avanzar segun la frecuencia de muestreo
+            current_date += timedelta(days=sample_days)
 
-        # Agregar punto final (hoy)
+        # Asegurar que el ultimo punto sea exactamente hoy con valor actual
         if history:
-            last_date = datetime.strptime(history[-1]['date'], '%Y-%m-%d').date()
-            if last_date < end_date:
+            # Calcular valor actual del portfolio
+            current_value = 0
+            holdings = {}
+
+            # Reconstruir holdings actuales
+            for txn in transactions:
+                ticker = txn.ticker
+                if ticker not in holdings:
+                    holdings[ticker] = 0
+
+                trans_type = txn.transaction_type or 'buy'
+                qty = float(txn.quantity)
+
+                if trans_type == 'buy':
+                    holdings[ticker] += qty
+                else:
+                    holdings[ticker] -= qty
+
+            # Calcular valor actual de cada holding
+            for ticker, qty in holdings.items():
+                if qty > 0.0001:  # Solo posiciones positivas
+                    try:
+                        current_price = get_current_price(ticker)
+                        if current_price:
+                            current_value += current_price * qty
+                        else:
+                            # Fallback: usar ultimo precio de compra conocido
+                            for txn in reversed(transactions):
+                                if txn.ticker == ticker and (txn.transaction_type or 'buy') == 'buy':
+                                    current_value += float(txn.purchase_price) * qty
+                                    break
+                    except Exception as price_error:
+                        logger.warning(f"Error obteniendo precio para {ticker}: {price_error}")
+
+            # Actualizar o agregar punto final
+            last_history_date = datetime.strptime(history[-1]['date'], '%Y-%m-%d').date()
+            if last_history_date == end_date:
+                history[-1]['value'] = round(current_value, 2)
+            else:
                 history.append({
                     'date': end_date.strftime('%Y-%m-%d'),
                     'value': round(current_value, 2)
                 })
-            else:
-                # Actualizar último punto con valor actual
-                history[-1]['value'] = round(current_value, 2)
 
-        print(f"DEBUG: Retornando {len(history)} puntos de historial")
-        if history:
-            print(f"DEBUG: Primera entrada: {history[0]}")
-            print(f"DEBUG: Última entrada: {history[-1]}")
+        logger.info(f"Portfolio history: {len(history)} puntos generados para rango '{range_param}'")
 
         return jsonify(history)
 
     except Exception as e:
-        print(f"ERROR en get_portfolio_history: {str(e)}")
-        traceback.print_exc()
         logger.error(f"Error fetching portfolio history: {str(e)}")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 
