@@ -5,6 +5,7 @@ from database import init_db, get_db, close_db
 from models import Transaction, Custodian, SwensenConfig
 from utils import (
     get_current_price,
+    get_historical_prices,
     validate_ticker,
     calculate_portfolio_evolution,
     calculate_weighted_average_price,
@@ -474,10 +475,10 @@ def get_portfolio_summary():
 @app.route('/api/portfolio/history', methods=['GET'])
 def get_portfolio_history():
     """
-    Obtiene historial del portfolio con muestreo granular.
+    Obtiene historial del portfolio con VALOR DE MERCADO historico.
 
-    Genera puntos de datos interpolados entre transacciones para
-    una visualizacion mas suave del grafico de evolucion.
+    Calcula el valor real de mercado del portfolio en cada fecha,
+    usando precios historicos de cada activo.
 
     Returns:
         JSON array con objetos {date, value}
@@ -515,89 +516,138 @@ def get_portfolio_history():
         if total_days > 1825:  # Mas de 5 anos
             sample_days = 7  # Semanal
         elif total_days > 730:  # Mas de 2 anos
-            sample_days = 3  # Cada 3 dias
+            sample_days = 5  # Cada 5 dias
         elif total_days > 365:  # Mas de 1 ano
-            sample_days = 2  # Cada 2 dias
+            sample_days = 3  # Cada 3 dias
         else:
-            sample_days = 1  # Diario
+            sample_days = 2  # Cada 2 dias
 
         # Agrupar transacciones por fecha para acceso rapido
         txns_by_date = defaultdict(list)
         for txn in transactions:
             txns_by_date[txn.purchase_date].append(txn)
 
-        # Construir historial iterando por fechas
-        history = []
-        current_date = start_date
-        cumulative_invested = 0
+        # Identificar tickers unicos
+        unique_tickers = set(txn.ticker for txn in transactions)
+        logger.info(f"Portfolio history: {len(unique_tickers)} tickers unicos")
 
-        # Primero, calcular el valor acumulado hasta start_date
-        # (transacciones anteriores al rango visible)
+        # Obtener precios historicos de cada ticker (UNA VEZ por ticker)
+        historical_prices = {}
+        last_known_prices = {}  # Fallback para fechas sin datos
+
+        for ticker in unique_tickers:
+            try:
+                df = get_historical_prices(
+                    ticker,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+                if not df.empty:
+                    # Convertir a diccionario {date: price}
+                    historical_prices[ticker] = {
+                        d.date(): float(p) for d, p in df['Close'].items()
+                    }
+                    # Guardar ultimo precio conocido como fallback
+                    last_known_prices[ticker] = float(df['Close'].iloc[-1])
+                else:
+                    historical_prices[ticker] = {}
+                    # Usar precio de compra mas reciente como fallback
+                    for txn in reversed(transactions):
+                        if txn.ticker == ticker:
+                            last_known_prices[ticker] = float(txn.purchase_price)
+                            break
+            except Exception as e:
+                logger.warning(f"Error obteniendo historico de {ticker}: {e}")
+                historical_prices[ticker] = {}
+                # Fallback a precio de compra
+                for txn in reversed(transactions):
+                    if txn.ticker == ticker:
+                        last_known_prices[ticker] = float(txn.purchase_price)
+                        break
+
+        # Construir historial de holdings por fecha
+        # holdings[ticker] = cantidad actual
+        holdings = defaultdict(float)
+
+        # Calcular holdings hasta start_date (transacciones anteriores)
         for txn in transactions:
             if txn.purchase_date < start_date:
                 trans_type = txn.transaction_type or 'buy'
-                txn_value = float(txn.purchase_price) * float(txn.quantity)
+                qty = float(txn.quantity)
                 if trans_type == 'buy':
-                    cumulative_invested += txn_value
-                else:  # sell
-                    cumulative_invested -= txn_value
+                    holdings[txn.ticker] += qty
+                else:
+                    holdings[txn.ticker] -= qty
 
         # Iterar desde start_date hasta end_date
+        history = []
+        current_date = start_date
+
         while current_date <= end_date:
             # Procesar transacciones de este dia
             if current_date in txns_by_date:
                 for txn in txns_by_date[current_date]:
                     trans_type = txn.transaction_type or 'buy'
-                    txn_value = float(txn.purchase_price) * float(txn.quantity)
+                    qty = float(txn.quantity)
                     if trans_type == 'buy':
-                        cumulative_invested += txn_value
-                    else:  # sell
-                        cumulative_invested -= txn_value
+                        holdings[txn.ticker] += qty
+                    else:
+                        holdings[txn.ticker] -= qty
+
+            # Calcular valor de mercado del portfolio en esta fecha
+            portfolio_value = 0.0
+
+            for ticker, qty in holdings.items():
+                if qty > 0.0001:  # Solo posiciones positivas
+                    # Buscar precio historico para esta fecha
+                    price = None
+
+                    if ticker in historical_prices:
+                        # Buscar precio exacto o mas cercano anterior
+                        ticker_prices = historical_prices[ticker]
+                        if current_date in ticker_prices:
+                            price = ticker_prices[current_date]
+                        else:
+                            # Buscar fecha mas cercana anterior
+                            for days_back in range(1, 8):
+                                check_date = current_date - timedelta(days=days_back)
+                                if check_date in ticker_prices:
+                                    price = ticker_prices[check_date]
+                                    break
+
+                    # Fallback: ultimo precio conocido
+                    if price is None and ticker in last_known_prices:
+                        price = last_known_prices[ticker]
+
+                    if price:
+                        portfolio_value += qty * price
+                        # Actualizar ultimo precio conocido
+                        last_known_prices[ticker] = price
 
             # Agregar punto al historial
             history.append({
                 'date': current_date.strftime('%Y-%m-%d'),
-                'value': round(cumulative_invested, 2)
+                'value': round(portfolio_value, 2)
             })
 
             # Avanzar segun la frecuencia de muestreo
             current_date += timedelta(days=sample_days)
 
-        # Asegurar que el ultimo punto sea exactamente hoy con valor actual
+        # Asegurar que el ultimo punto sea exactamente hoy con precio actual
         if history:
-            # Calcular valor actual del portfolio
-            current_value = 0
-            holdings = {}
-
-            # Reconstruir holdings actuales
-            for txn in transactions:
-                ticker = txn.ticker
-                if ticker not in holdings:
-                    holdings[ticker] = 0
-
-                trans_type = txn.transaction_type or 'buy'
-                qty = float(txn.quantity)
-
-                if trans_type == 'buy':
-                    holdings[ticker] += qty
-                else:
-                    holdings[ticker] -= qty
-
-            # Calcular valor actual de cada holding
+            current_value = 0.0
             for ticker, qty in holdings.items():
-                if qty > 0.0001:  # Solo posiciones positivas
+                if qty > 0.0001:
                     try:
                         current_price = get_current_price(ticker)
                         if current_price:
                             current_value += current_price * qty
-                        else:
-                            # Fallback: usar ultimo precio de compra conocido
-                            for txn in reversed(transactions):
-                                if txn.ticker == ticker and (txn.transaction_type or 'buy') == 'buy':
-                                    current_value += float(txn.purchase_price) * qty
-                                    break
-                    except Exception as price_error:
-                        logger.warning(f"Error obteniendo precio para {ticker}: {price_error}")
+                        elif ticker in last_known_prices:
+                            current_value += last_known_prices[ticker] * qty
+                    except Exception as e:
+                        logger.warning(f"Error obteniendo precio actual de {ticker}: {e}")
+                        if ticker in last_known_prices:
+                            current_value += last_known_prices[ticker] * qty
 
             # Actualizar o agregar punto final
             last_history_date = datetime.strptime(history[-1]['date'], '%Y-%m-%d').date()
@@ -609,7 +659,7 @@ def get_portfolio_history():
                     'value': round(current_value, 2)
                 })
 
-        logger.info(f"Portfolio history: {len(history)} puntos generados para rango '{range_param}'")
+        logger.info(f"Portfolio history: {len(history)} puntos con valor de mercado para rango '{range_param}'")
 
         return jsonify(history)
 
