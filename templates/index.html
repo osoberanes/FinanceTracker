@@ -15,9 +15,16 @@
                     <form id="transactionForm">
                         <div class="row g-3">
                             <div class="col-md-2">
+                                <label for="transaction_type" class="form-label">Tipo <span class="text-danger">*</span></label>
+                                <select class="form-select" id="transaction_type" required>
+                                    <option value="buy" selected>Compra</option>
+                                    <option value="sell">Venta</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
                                 <label for="market" class="form-label">Mercado <span class="text-danger">*</span></label>
                                 <select class="form-select" id="market" required>
-                                    <option value="MX" selected>🇲🇽 México (BMV)</option>
+                                    <option value="MX" selected>🇲🇽 Mexico (BMV)</option>
                                     <option value="US">🇺🇸 Estados Unidos</option>
                                     <option value="CRYPTO">🪙 Criptomonedas</option>
                                 </select>
@@ -52,8 +59,12 @@
                             </div>
                             <div class="col-md-2">
                                 <label for="quantity" class="form-label">Cantidad <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="quantity" step="0.00000001" min="0.00000001" required
-                                       placeholder="0.00">
+                                <input type="number" class="form-control" id="quantity" step="1" min="1" required
+                                       placeholder="Ej: 10, 50, 100">
+                                <small class="form-text text-muted" id="quantity-format-hint">
+                                    Acciones: Solo numeros enteros
+                                </small>
+                                <small class="form-text text-info d-none" id="available-quantity-hint"></small>
                             </div>
                             <div class="col-md-2">
                                 <label for="custodian" class="form-label">Custodio</label>
@@ -349,20 +360,21 @@
                             <thead class="table-dark">
                                 <tr>
                                     <th>Fecha</th>
+                                    <th>Tipo</th>
                                     <th>Ticker</th>
-                                    <th class="text-end">Precio Compra</th>
+                                    <th class="text-end">Precio</th>
                                     <th class="text-end">Cantidad</th>
                                     <th class="text-end">Precio Actual</th>
                                     <th class="text-end">Valor Invertido</th>
                                     <th class="text-end">Valor Actual</th>
-                                    <th class="text-end">Ganancia/Pérdida $</th>
-                                    <th class="text-end">Ganancia/Pérdida %</th>
+                                    <th class="text-end">Ganancia/Perdida $</th>
+                                    <th class="text-end">Ganancia/Perdida %</th>
                                     <th class="text-center">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="transactionsTableBody">
                                 <tr>
-                                    <td colspan="10" class="text-center text-muted">
+                                    <td colspan="11" class="text-center text-muted">
                                         <div class="spinner-border spinner-border-sm" role="status">
                                             <span class="visually-hidden">Cargando...</span>
                                         </div>
@@ -390,13 +402,22 @@
                         <input type="hidden" id="edit-id">
                         <input type="hidden" id="edit-asset-type">
 
-                        <div class="mb-3">
-                            <label for="edit-market" class="form-label">Mercado</label>
-                            <select class="form-select" id="edit-market" required onchange="handleEditMarketChange()">
-                                <option value="MX">Mexico (BMV)</option>
-                                <option value="US">Estados Unidos</option>
-                                <option value="CRYPTO">Criptomonedas</option>
-                            </select>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="edit-transaction-type" class="form-label">Tipo de Transaccion</label>
+                                <select class="form-select" id="edit-transaction-type" required>
+                                    <option value="buy">Compra</option>
+                                    <option value="sell">Venta</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="edit-market" class="form-label">Mercado</label>
+                                <select class="form-select" id="edit-market" required onchange="handleEditMarketChange()">
+                                    <option value="MX">Mexico (BMV)</option>
+                                    <option value="US">Estados Unidos</option>
+                                    <option value="CRYPTO">Criptomonedas</option>
+                                </select>
+                            </div>
                         </div>
 
                         <!-- Ticker para stocks -->
@@ -433,7 +454,27 @@
 
                         <div class="mb-3">
                             <label for="edit-quantity" class="form-label">Cantidad</label>
-                            <input type="number" step="0.01" min="0.01" class="form-control" id="edit-quantity" required>
+                            <input type="number" step="1" min="1" class="form-control" id="edit-quantity" required>
+                            <small class="form-text text-muted" id="edit-quantity-hint">
+                                Acciones: Solo numeros enteros
+                            </small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="edit-asset-class" class="form-label">Clase de Activo</label>
+                            <select class="form-select" id="edit-asset-class">
+                                <option value="">Auto-detectar</option>
+                                <option value="acciones_mexico">Acciones Mexico</option>
+                                <option value="acciones_usa">Acciones Estados Unidos</option>
+                                <option value="acciones_internacionales">Acciones Internacionales</option>
+                                <option value="mercados_emergentes">Mercados Emergentes</option>
+                                <option value="fibras">FIBRAs</option>
+                                <option value="cetes">CETES</option>
+                                <option value="bonos_gubernamentales">Bonos Gubernamentales</option>
+                                <option value="udibonos">UDIBONOS</option>
+                                <option value="oro_materias_primas">Oro y Materias Primas</option>
+                                <option value="criptomonedas">Criptomonedas</option>
+                            </select>
                         </div>
 
                         <!-- Campos de staking (solo para crypto) -->

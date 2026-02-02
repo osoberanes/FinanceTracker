@@ -26,6 +26,7 @@ def init_db():
     migrate_add_crypto_fields()
     migrate_add_asset_class_column()
     migrate_add_swensen_config()
+    migrate_add_transaction_type_column()
     print(f"Database initialized at: {DATABASE_PATH}")
 
     # Intentar cargar datos de ejemplo (solo si LOAD_SAMPLE_DATA=true)
@@ -288,6 +289,36 @@ def migrate_add_swensen_config():
         logger.error(f"Error during Swensen config migration: {str(e)}")
 
 
+def migrate_add_transaction_type_column():
+    """
+    Migration to add transaction_type column to transactions table.
+    Default value is 'buy' for existing transactions.
+    This is idempotent - safe to run multiple times.
+    """
+    try:
+        with engine.connect() as conn:
+            # Check if column already exists
+            result = conn.execute(text("PRAGMA table_info(transactions)"))
+            columns = [row[1] for row in result]
+
+            if 'transaction_type' not in columns:
+                logger.info("Adding 'transaction_type' column to transactions table")
+                conn.execute(text("ALTER TABLE transactions ADD COLUMN transaction_type TEXT DEFAULT 'buy'"))
+                conn.commit()
+
+                # Set all existing transactions as 'buy'
+                conn.execute(text("UPDATE transactions SET transaction_type = 'buy' WHERE transaction_type IS NULL"))
+                conn.commit()
+
+                logger.info("Migration completed: 'transaction_type' column added")
+            else:
+                logger.debug("'transaction_type' column already exists, skipping migration")
+
+    except Exception as e:
+        logger.error(f"Error during transaction_type migration: {str(e)}")
+        # Don't raise - allow app to continue even if migration fails
+
+
 def load_sample_data():
     """
     Carga transacciones de ejemplo para demo/testing
@@ -329,21 +360,25 @@ def load_sample_data():
         if not gbm or not bitso:
             print("⚠️  Custodios no encontrados, creando transacciones sin custodio")
 
-        # Transacciones de ejemplo
+        # Transacciones de ejemplo (incluyendo compras y ventas)
         sample_transactions = [
-            {'date': '2025-11-26', 'ticker': 'NVONL.MX', 'price': 895.94, 'qty': 5.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2025-09-29', 'ticker': 'PAXG', 'price': 70000.00, 'qty': 0.05, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2025-08-15', 'ticker': 'VWO.MX', 'price': 976.00, 'qty': 15.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2025-08-15', 'ticker': 'SOL', 'price': 3522.84, 'qty': 0.0636, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2025-05-29', 'ticker': 'IAU.MX', 'price': 1208.00, 'qty': 12.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2025-05-27', 'ticker': 'ETH', 'price': 52103.75, 'qty': 0.0058, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2025-05-12', 'ticker': 'XRP', 'price': 52.38, 'qty': 13.17, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2025-02-01', 'ticker': 'ETH', 'price': 45000.00, 'qty': 0.0025, 'market': 'CRYPTO', 'custodian': bitso},
-            {'date': '2024-03-08', 'ticker': 'AGUILASCPO.MX', 'price': 27.07, 'qty': 30.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2023-07-13', 'ticker': 'FUNO11.MX', 'price': 25.00, 'qty': 199.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2023-06-21', 'ticker': 'VOO.MX', 'price': 6955.95, 'qty': 3.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2023-05-31', 'ticker': 'VOO.MX', 'price': 6800.00, 'qty': 1.0, 'market': 'MX', 'custodian': gbm},
-            {'date': '2023-04-25', 'ticker': 'BTC', 'price': 502344.69, 'qty': 0.004, 'market': 'CRYPTO', 'custodian': bitso},
+            # Compras
+            {'date': '2025-11-26', 'ticker': 'NVONL.MX', 'price': 895.94, 'qty': 5, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2025-09-29', 'ticker': 'PAXG', 'price': 70000.00, 'qty': 0.05, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            {'date': '2025-08-15', 'ticker': 'VWO.MX', 'price': 976.00, 'qty': 15, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2025-08-15', 'ticker': 'SOL', 'price': 3522.84, 'qty': 0.0636, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            {'date': '2025-05-29', 'ticker': 'IAU.MX', 'price': 1208.00, 'qty': 12, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2025-05-27', 'ticker': 'ETH', 'price': 52103.75, 'qty': 0.0058, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            {'date': '2025-05-12', 'ticker': 'XRP', 'price': 52.38, 'qty': 13.17, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            {'date': '2025-02-01', 'ticker': 'ETH', 'price': 45000.00, 'qty': 0.0025, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            {'date': '2024-03-08', 'ticker': 'AGUILASCPO.MX', 'price': 27.07, 'qty': 30, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2023-07-13', 'ticker': 'FUNO11.MX', 'price': 25.00, 'qty': 199, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2023-06-21', 'ticker': 'VOO.MX', 'price': 6955.95, 'qty': 3, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2023-05-31', 'ticker': 'VOO.MX', 'price': 6800.00, 'qty': 1, 'market': 'MX', 'custodian': gbm, 'type': 'buy'},
+            {'date': '2023-04-25', 'ticker': 'BTC', 'price': 502344.69, 'qty': 0.004, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'buy'},
+            # Ventas de ejemplo
+            {'date': '2025-12-15', 'ticker': 'FUNO11.MX', 'price': 28.50, 'qty': 50, 'market': 'MX', 'custodian': gbm, 'type': 'sell'},
+            {'date': '2026-01-10', 'ticker': 'XRP', 'price': 75.00, 'qty': 5.0, 'market': 'CRYPTO', 'custodian': bitso, 'type': 'sell'},
         ]
 
         # Crear transacciones
@@ -367,6 +402,7 @@ def load_sample_data():
                     asset_type=asset_type,
                     ticker=txn_data['ticker'],
                     market=txn_data['market'],
+                    transaction_type=txn_data.get('type', 'buy'),
                     asset_class=asset_class,
                     purchase_date=datetime.strptime(txn_data['date'], '%Y-%m-%d').date(),
                     purchase_price=txn_data['price'],

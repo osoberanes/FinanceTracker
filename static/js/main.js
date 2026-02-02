@@ -48,6 +48,39 @@ function getGainLossClass(value) {
     return value >= 0 ? 'gain' : 'loss';
 }
 
+// Utility function to format quantity (respects decimals for crypto)
+function formatQuantity(value, isCrypto = false) {
+    if (value === null || value === undefined) {
+        return 'N/A';
+    }
+    const decimals = isCrypto ? 8 : 0;
+    return new Intl.NumberFormat('es-MX', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: decimals
+    }).format(value);
+}
+
+// Validate quantity based on asset type
+function validateQuantity(quantity, assetType) {
+    const qty = parseFloat(quantity);
+
+    if (isNaN(qty) || qty <= 0) {
+        return { valid: false, error: 'La cantidad debe ser mayor a 0' };
+    }
+
+    if (assetType !== 'crypto') {
+        // Acciones: solo enteros
+        if (!Number.isInteger(qty)) {
+            return {
+                valid: false,
+                error: 'Las acciones solo permiten cantidades enteras (sin decimales)'
+            };
+        }
+    }
+
+    return { valid: true, quantity: qty };
+}
+
 // Show message (success or error)
 function showMessage(message, type = 'success') {
     const messageDiv = document.getElementById('formMessage');
@@ -83,6 +116,7 @@ function handleMarketChange() {
     const tickerHint = document.getElementById('ticker-hint');
     const priceInput = document.getElementById('purchase_price');
     const quantityInput = document.getElementById('quantity');
+    const quantityFormatHint = document.getElementById('quantity-format-hint');
 
     if (market === 'CRYPTO') {
         // Show crypto selector, hide ticker input
@@ -95,6 +129,10 @@ function handleMarketChange() {
         // Adjust decimal precision for crypto (8 decimals)
         priceInput.step = '0.00000001';
         quantityInput.step = '0.00000001';
+        quantityInput.placeholder = 'Ej: 0.05, 1.5, 12.75';
+        if (quantityFormatHint) {
+            quantityFormatHint.textContent = 'Crypto: Se permiten hasta 8 decimales';
+        }
     } else {
         // Show ticker input, hide crypto selector
         tickerInputContainer.style.display = 'block';
@@ -103,19 +141,26 @@ function handleMarketChange() {
         tickerInput.required = true;
         document.getElementById('crypto_ticker').required = false;
 
-        // Reset to normal precision
+        // Reset to integer precision for stocks
         priceInput.step = '0.01';
-        quantityInput.step = '0.01';
+        quantityInput.step = '1';
+        quantityInput.placeholder = 'Ej: 10, 50, 100';
+        if (quantityFormatHint) {
+            quantityFormatHint.textContent = 'Acciones: Solo numeros enteros';
+        }
 
         // Update ticker hint
         if (market === 'MX') {
             tickerInput.placeholder = 'Ej: FUNO11, DANHOS13';
-            tickerHint.textContent = 'Sin .MX (se agrega automáticamente)';
+            tickerHint.textContent = 'Sin .MX (se agrega automaticamente)';
         } else {
             tickerInput.placeholder = 'Ej: AAPL, MSFT';
             tickerHint.textContent = 'Ingresa el ticker sin sufijo';
         }
     }
+
+    // Update available quantity hint if selling
+    updateAvailableQuantityHint();
 }
 
 // Handle crypto selection change (enable/disable staking for ETH/SOL)
@@ -137,6 +182,59 @@ function handleCryptoChange() {
         document.getElementById('staking-rewards-container').style.display = 'none';
         document.getElementById('staking_rewards').value = '0';
     }
+
+    // Update available quantity hint
+    updateAvailableQuantityHint();
+}
+
+// Handle transaction type change
+function handleTransactionTypeChange() {
+    updateAvailableQuantityHint();
+}
+
+// Update available quantity hint for sells
+async function updateAvailableQuantityHint() {
+    const transactionType = document.getElementById('transaction_type').value;
+    const market = document.getElementById('market').value;
+    const hint = document.getElementById('available-quantity-hint');
+
+    if (!hint) return;
+
+    if (transactionType !== 'sell') {
+        hint.classList.add('d-none');
+        return;
+    }
+
+    // Get ticker
+    let ticker = '';
+    if (market === 'CRYPTO') {
+        ticker = document.getElementById('crypto_ticker').value;
+    } else {
+        ticker = document.getElementById('ticker').value.toUpperCase();
+        if (market === 'MX' && ticker && !ticker.endsWith('.MX')) {
+            ticker = ticker + '.MX';
+        }
+    }
+
+    if (!ticker) {
+        hint.classList.add('d-none');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/available-quantity/${ticker}`);
+        const data = await response.json();
+
+        if (data.available_quantity !== undefined) {
+            hint.textContent = `Disponible para venta: ${formatQuantity(data.available_quantity, market === 'CRYPTO')}`;
+            hint.classList.remove('d-none');
+        } else {
+            hint.classList.add('d-none');
+        }
+    } catch (error) {
+        console.error('Error fetching available quantity:', error);
+        hint.classList.add('d-none');
+    }
 }
 
 // Set max date to today for date input
@@ -145,6 +243,18 @@ document.addEventListener('DOMContentLoaded', function() {
     const today = new Date().toISOString().split('T')[0];
     dateInput.setAttribute('max', today);
     dateInput.value = today;
+
+    // Add event listeners for transaction type and ticker changes
+    const transactionTypeSelect = document.getElementById('transaction_type');
+    if (transactionTypeSelect) {
+        transactionTypeSelect.addEventListener('change', handleTransactionTypeChange);
+    }
+
+    const tickerInput = document.getElementById('ticker');
+    if (tickerInput) {
+        tickerInput.addEventListener('change', updateAvailableQuantityHint);
+        tickerInput.addEventListener('blur', updateAvailableQuantityHint);
+    }
 
     // Load custodians dropdown
     loadCustodiansDropdown();
@@ -220,13 +330,25 @@ document.getElementById('transactionForm').addEventListener('submit', async func
         }
     }
 
+    const transactionType = document.getElementById('transaction_type').value;
     const purchaseDate = document.getElementById('purchase_date').value;
     const purchasePrice = parseFloat(document.getElementById('purchase_price').value);
-    const quantity = parseFloat(document.getElementById('quantity').value);
+    const quantityValue = document.getElementById('quantity').value;
     const custodianId = document.getElementById('custodian').value;
     const generatesStaking = document.getElementById('generates_staking').checked;
     const stakingRewards = parseFloat(document.getElementById('staking_rewards').value) || 0;
     const assetClass = document.getElementById('asset_class').value;
+
+    // Determine asset type for validation
+    const assetType = market === 'CRYPTO' ? 'crypto' : 'stock';
+
+    // Validate quantity
+    const validation = validateQuantity(quantityValue, assetType);
+    if (!validation.valid) {
+        showMessage(validation.error, 'error');
+        return;
+    }
+    const quantity = validation.quantity;
 
     // Basic validation
     if (!market || !ticker || !purchaseDate || !purchasePrice || !quantity) {
@@ -242,9 +364,10 @@ document.getElementById('transactionForm').addEventListener('submit', async func
 
     try {
         const requestBody = {
-            asset_type: market === 'CRYPTO' ? 'crypto' : 'stock',
+            asset_type: assetType,
             market: market,
             ticker: ticker,
+            transaction_type: transactionType,
             purchase_date: purchaseDate,
             purchase_price: purchasePrice,
             quantity: quantity
@@ -323,13 +446,18 @@ async function loadTransactions() {
 
         tbody.innerHTML = transactions.map(trans => {
             const gainLossClass = getGainLossClass(trans.gain_loss_dollar);
+            const isCrypto = trans.asset_type === 'crypto';
+            const transTypeIcon = trans.transaction_type === 'buy'
+                ? '<span class="badge bg-success">Compra</span>'
+                : '<span class="badge bg-danger">Venta</span>';
 
             return `
                 <tr class="fade-in-row">
                     <td>${formatDate(trans.purchase_date)}</td>
+                    <td>${transTypeIcon}</td>
                     <td><span class="ticker-badge">${trans.ticker}</span></td>
                     <td class="text-end">${formatCurrency(trans.purchase_price)}</td>
-                    <td class="text-end">${trans.quantity.toFixed(4)}</td>
+                    <td class="text-end">${formatQuantity(trans.quantity, isCrypto)}</td>
                     <td class="text-end">${trans.current_price ? formatCurrency(trans.current_price) : 'N/A'}</td>
                     <td class="text-end">${formatCurrency(trans.invested_value)}</td>
                     <td class="text-end">${trans.current_value ? formatCurrency(trans.current_value) : 'N/A'}</td>
@@ -743,6 +871,30 @@ async function editTransaction(id) {
         document.getElementById('edit-price').value = transaction.purchase_price;
         document.getElementById('edit-quantity').value = transaction.quantity;
 
+        // Set transaction type
+        const editTransactionType = document.getElementById('edit-transaction-type');
+        if (editTransactionType) {
+            editTransactionType.value = transaction.transaction_type || 'buy';
+        }
+
+        // Set asset class
+        const editAssetClass = document.getElementById('edit-asset-class');
+        if (editAssetClass) {
+            editAssetClass.value = transaction.asset_class || '';
+        }
+
+        // Update quantity hint
+        const editQuantityHint = document.getElementById('edit-quantity-hint');
+        if (editQuantityHint) {
+            if (transaction.asset_type === 'crypto') {
+                editQuantityHint.textContent = 'Crypto: Se permiten hasta 8 decimales';
+                document.getElementById('edit-quantity').step = '0.00000001';
+            } else {
+                editQuantityHint.textContent = 'Acciones: Solo numeros enteros';
+                document.getElementById('edit-quantity').step = '1';
+            }
+        }
+
         // Set custodian
         const editCustodianSelect = document.getElementById('edit-custodian');
         if (editCustodianSelect && transaction.custodian_id) {
@@ -764,10 +916,12 @@ async function editTransaction(id) {
 async function saveEdit() {
     const id = document.getElementById('edit-id').value;
     const market = document.getElementById('edit-market').value;
+    const transactionType = document.getElementById('edit-transaction-type')?.value || 'buy';
     const purchaseDate = document.getElementById('edit-date').value;
     const purchasePrice = parseFloat(document.getElementById('edit-price').value);
-    const quantity = parseFloat(document.getElementById('edit-quantity').value);
+    const quantityValue = document.getElementById('edit-quantity').value;
     const custodianId = document.getElementById('edit-custodian')?.value;
+    const assetClassValue = document.getElementById('edit-asset-class')?.value;
 
     // Get ticker based on market type
     let ticker;
@@ -801,6 +955,14 @@ async function saveEdit() {
         }
     }
 
+    // Validate quantity
+    const validation = validateQuantity(quantityValue, assetType);
+    if (!validation.valid) {
+        showMessage(validation.error, 'error');
+        return;
+    }
+    const quantity = validation.quantity;
+
     // Validation
     if (!purchaseDate || !purchasePrice || !quantity) {
         showMessage('Por favor completa todos los campos', 'error');
@@ -816,6 +978,7 @@ async function saveEdit() {
         market: market,
         ticker: ticker,
         asset_type: assetType,
+        transaction_type: transactionType,
         purchase_date: purchaseDate,
         purchase_price: purchasePrice,
         quantity: quantity
@@ -830,6 +993,11 @@ async function saveEdit() {
     // Add custodian_id if selected
     if (custodianId) {
         data.custodian_id = parseInt(custodianId);
+    }
+
+    // Add asset_class if selected
+    if (assetClassValue) {
+        data.asset_class = assetClassValue;
     }
 
     try {

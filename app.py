@@ -33,6 +33,73 @@ import traceback
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ============================================
+# FUNCIONES DE VALIDACION
+# ============================================
+
+def validate_quantity(quantity, asset_type):
+    """
+    Valida la cantidad segun el tipo de activo.
+    - Acciones: solo enteros
+    - Crypto: hasta 8 decimales
+
+    Args:
+        quantity: Cantidad a validar
+        asset_type: 'stock' o 'crypto'
+
+    Returns:
+        Tuple (cantidad_validada, error_message)
+    """
+    try:
+        qty = float(quantity)
+        if qty <= 0:
+            return None, "La cantidad debe ser mayor a 0"
+
+        if asset_type == 'crypto':
+            # Crypto permite hasta 8 decimales
+            return round(qty, 8), None
+        else:
+            # Acciones solo permiten enteros
+            if qty != int(qty):
+                return None, "Las acciones solo permiten cantidades enteras (sin decimales)"
+            return int(qty), None
+
+    except (ValueError, TypeError):
+        return None, "Cantidad invalida"
+
+
+def get_available_quantity(db, ticker, custodian_id=None):
+    """
+    Calcula la cantidad disponible de un activo (compras - ventas).
+    Opcionalmente filtra por custodio.
+
+    Args:
+        db: Sesion de base de datos
+        ticker: Ticker del activo
+        custodian_id: ID del custodio (opcional)
+
+    Returns:
+        float: Cantidad disponible
+    """
+    query = db.query(Transaction).filter(Transaction.ticker == ticker)
+    if custodian_id:
+        query = query.filter(Transaction.custodian_id == custodian_id)
+
+    transactions = query.all()
+
+    total_bought = sum(
+        float(t.quantity) for t in transactions
+        if t.transaction_type == 'buy'
+    )
+    total_sold = sum(
+        float(t.quantity) for t in transactions
+        if t.transaction_type == 'sell'
+    )
+
+    return total_bought - total_sold
+
+
 # Initialize Flask app
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
@@ -173,15 +240,31 @@ def create_transaction():
         # Validate numeric values
         try:
             purchase_price = float(data['purchase_price'])
-            quantity = float(data['quantity'])
 
             if purchase_price <= 0:
                 return jsonify({'error': 'Purchase price must be greater than 0'}), 400
-            if quantity <= 0:
-                return jsonify({'error': 'Quantity must be greater than 0'}), 400
 
         except (ValueError, TypeError):
             return jsonify({'error': 'Invalid numeric values'}), 400
+
+        # Validar cantidad segun tipo de activo
+        quantity, qty_error = validate_quantity(data['quantity'], asset_type)
+        if qty_error:
+            return jsonify({'error': qty_error}), 400
+
+        # Obtener tipo de transaccion (compra o venta)
+        transaction_type = data.get('transaction_type', 'buy')
+        if transaction_type not in ['buy', 'sell']:
+            return jsonify({'error': 'Tipo de transaccion invalido. Use "buy" o "sell"'}), 400
+
+        # Si es venta, validar que hay suficiente cantidad
+        db = get_db()
+        if transaction_type == 'sell':
+            available = get_available_quantity(db, ticker, data.get('custodian_id'))
+            if quantity > available:
+                return jsonify({
+                    'error': f'Cantidad insuficiente. Disponible: {available}, Intentando vender: {quantity}'
+                }), 400
 
         # Get crypto-specific fields
         generates_staking = data.get('generates_staking', False)
@@ -193,11 +276,11 @@ def create_transaction():
             asset_class = classify_asset(ticker, market, asset_type)
 
         # Create transaction
-        db = get_db()
         transaction = Transaction(
             asset_type=asset_type,
             ticker=ticker,
             market=market,
+            transaction_type=transaction_type,
             purchase_date=purchase_date,
             purchase_price=purchase_price,
             quantity=quantity,
@@ -229,6 +312,7 @@ def create_transaction():
 def get_portfolio_summary():
     """
     Get consolidated portfolio summary grouped by ticker.
+    Considers both buys and sells for accurate position tracking.
 
     Returns:
         JSON with portfolio positions and totals
@@ -245,52 +329,105 @@ def get_portfolio_summary():
                     'total_current_value': 0,
                     'total_gain_loss_dollar': 0,
                     'total_gain_loss_percent': 0,
+                    'realized_gain': 0,
                     'num_positions': 0,
                     'num_transactions': 0
                 }
             })
 
-        # Group transactions by ticker
-        positions_map = {}
+        # Group transactions by ticker considering buy/sell
+        holdings = {}
 
         for trans in transactions:
             ticker = trans.ticker
+            trans_dict = trans.to_dict()
 
-            if ticker not in positions_map:
-                positions_map[ticker] = []
+            if ticker not in holdings:
+                holdings[ticker] = {
+                    'ticker': ticker,
+                    'asset_type': trans.asset_type,
+                    'market': trans.market,
+                    'asset_class': trans.asset_class,
+                    'quantity': 0,
+                    'total_cost': 0,
+                    'total_sold_value': 0,
+                    'buy_transactions': [],
+                    'sell_transactions': []
+                }
 
-            positions_map[ticker].append(trans.to_dict())
+            qty = float(trans.quantity)
+            price = float(trans.purchase_price)
+            trans_type = trans.transaction_type or 'buy'
+
+            if trans_type == 'buy':
+                holdings[ticker]['quantity'] += qty
+                holdings[ticker]['total_cost'] += qty * price
+                holdings[ticker]['buy_transactions'].append(trans_dict)
+            else:  # sell
+                holdings[ticker]['quantity'] -= qty
+                holdings[ticker]['total_sold_value'] += qty * price
+                holdings[ticker]['sell_transactions'].append(trans_dict)
 
         # Calculate consolidated positions
         positions = []
         total_invested_all = 0
         total_current_value_all = 0
+        total_realized_gain = 0
 
-        for ticker, ticker_transactions in positions_map.items():
-            # Calculate totals for this ticker
-            total_quantity = sum(t['quantity'] for t in ticker_transactions)
-            total_invested = sum(t['purchase_price'] * t['quantity'] for t in ticker_transactions)
-            avg_price = calculate_weighted_average_price(ticker_transactions)
+        for ticker, data in holdings.items():
+            # Skip positions with zero or negative quantity (fully sold)
+            if data['quantity'] <= 0.0001:
+                # Calculate realized gain for closed positions
+                if data['total_cost'] > 0 and data['total_sold_value'] > 0:
+                    realized = data['total_sold_value'] - data['total_cost']
+                    total_realized_gain += realized
+                continue
+
+            # Calculate average purchase price from buys only
+            buy_txns = data['buy_transactions']
+            if buy_txns:
+                avg_price = calculate_weighted_average_price(buy_txns)
+            else:
+                avg_price = 0
+
+            # Calculate cost basis for remaining shares
+            # Use FIFO: sold shares come from earliest buys
+            remaining_cost = data['total_cost']
+            if data['sell_transactions']:
+                # Simplified: assume average cost for sold shares
+                total_bought = sum(t['quantity'] for t in buy_txns)
+                if total_bought > 0:
+                    avg_buy_price = data['total_cost'] / total_bought
+                    total_sold_qty = sum(t['quantity'] for t in data['sell_transactions'])
+                    cost_of_sold = total_sold_qty * avg_buy_price
+                    remaining_cost = data['total_cost'] - cost_of_sold
+
+                    # Realized gain from sales
+                    realized = data['total_sold_value'] - cost_of_sold
+                    total_realized_gain += realized
 
             # Get current price
             current_price = get_current_price(ticker)
-            current_value = current_price * total_quantity if current_price else None
+            current_value = current_price * data['quantity'] if current_price else None
 
             gain_loss_dollar = None
             gain_loss_percent = None
 
-            if current_value is not None:
-                gain_loss_dollar, gain_loss_percent = calculate_gain_loss(total_invested, current_value)
+            if current_value is not None and remaining_cost > 0:
+                gain_loss_dollar, gain_loss_percent = calculate_gain_loss(remaining_cost, current_value)
                 total_current_value_all += current_value
 
-            total_invested_all += total_invested
+            total_invested_all += remaining_cost
 
             positions.append({
                 'ticker': ticker,
-                'total_quantity': round(total_quantity, 4),
+                'asset_type': data['asset_type'],
+                'market': data['market'],
+                'asset_class': data['asset_class'],
+                'total_quantity': round(data['quantity'], 8),
                 'avg_purchase_price': round(avg_price, 2),
                 'current_price': round(current_price, 2) if current_price else None,
-                'total_invested': round(total_invested, 2),
+                'total_invested': round(remaining_cost, 2),
                 'current_value': round(current_value, 2) if current_value else None,
                 'gain_loss_dollar': round(gain_loss_dollar, 2) if gain_loss_dollar is not None else None,
                 'gain_loss_percent': round(gain_loss_percent, 2) if gain_loss_percent is not None else None,
@@ -318,6 +455,8 @@ def get_portfolio_summary():
             'total_current_value': round(total_current_value_all, 2),
             'total_gain_loss_dollar': round(total_gain_loss_dollar, 2),
             'total_gain_loss_percent': round(total_gain_loss_percent, 2),
+            'realized_gain': round(total_realized_gain, 2),
+            'total_gain': round(total_gain_loss_dollar + total_realized_gain, 2),
             'num_positions': len(positions),
             'num_transactions': len(transactions)
         }
@@ -554,13 +693,19 @@ def update_transaction(id):
                 return jsonify({'error': 'Invalid purchase_price value'}), 400
 
         if 'quantity' in data:
-            try:
-                quantity = float(data['quantity'])
-                if quantity <= 0:
-                    return jsonify({'error': 'Quantity must be greater than 0'}), 400
-                transaction.quantity = quantity
-            except (ValueError, TypeError):
-                return jsonify({'error': 'Invalid quantity value'}), 400
+            # Validar cantidad segun tipo de activo
+            asset_type = data.get('asset_type', transaction.asset_type or 'stock')
+            quantity, qty_error = validate_quantity(data['quantity'], asset_type)
+            if qty_error:
+                return jsonify({'error': qty_error}), 400
+            transaction.quantity = quantity
+
+        # Handle transaction_type if provided
+        if 'transaction_type' in data:
+            new_type = data['transaction_type']
+            if new_type not in ['buy', 'sell']:
+                return jsonify({'error': 'Tipo de transaccion invalido. Use "buy" o "sell"'}), 400
+            transaction.transaction_type = new_type
 
         # Handle staking fields (crypto only)
         if 'generates_staking' in data:
@@ -576,9 +721,34 @@ def update_transaction(id):
         if 'custodian_id' in data:
             transaction.custodian_id = data.get('custodian_id')
 
+        # Handle asset_class if provided
+        if 'asset_class' in data:
+            transaction.asset_class = data.get('asset_class')
+
         # Handle notes if provided
         if 'notes' in data:
             transaction.notes = data.get('notes')
+
+        # Validar disponibilidad si es venta
+        final_type = transaction.transaction_type
+        final_quantity = float(transaction.quantity)
+        final_ticker = transaction.ticker
+
+        if final_type == 'sell':
+            # Calcular disponible excluyendo esta transaccion
+            all_txns = db.query(Transaction).filter(
+                Transaction.ticker == final_ticker,
+                Transaction.id != id
+            ).all()
+
+            total_bought = sum(float(t.quantity) for t in all_txns if t.transaction_type == 'buy')
+            total_sold = sum(float(t.quantity) for t in all_txns if t.transaction_type == 'sell')
+            available = total_bought - total_sold
+
+            if final_quantity > available:
+                return jsonify({
+                    'error': f'Cantidad insuficiente. Disponible: {available}, Intentando vender: {final_quantity}'
+                }), 400
 
         transaction.updated_at = datetime.now()
 
@@ -628,6 +798,36 @@ def delete_transaction(id):
     except Exception as e:
         logger.error(f"Error deleting transaction {id}: {str(e)}")
         db.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/available-quantity/<ticker>', methods=['GET'])
+def get_ticker_available_quantity(ticker):
+    """
+    Retorna la cantidad disponible de un ticker especifico.
+
+    Args:
+        ticker: Ticker del activo
+
+    Query params:
+        custodian_id: ID del custodio (opcional)
+
+    Returns:
+        JSON con cantidad disponible
+    """
+    try:
+        db = get_db()
+        custodian_id = request.args.get('custodian_id', type=int)
+        available = get_available_quantity(db, ticker.upper(), custodian_id)
+
+        return jsonify({
+            'ticker': ticker.upper(),
+            'available_quantity': available,
+            'custodian_id': custodian_id
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting available quantity for {ticker}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

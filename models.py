@@ -46,6 +46,7 @@ class Transaction(Base):
     asset_type = Column(String, nullable=False, default='stock')  # 'stock', 'crypto', 'cete', 'bond'
     ticker = Column(String, nullable=False)
     market = Column(String, default='MX')  # 'MX' for Mexico (BMV), 'US' for United States, 'CRYPTO' for crypto
+    transaction_type = Column(String(10), nullable=False, default='buy')  # 'buy' or 'sell'
     purchase_date = Column(Date, nullable=False)
     purchase_price = Column(Numeric(18, 8), nullable=False)  # 8 decimals for crypto precision
     quantity = Column(Numeric(18, 8), nullable=False)  # 8 decimals for crypto precision
@@ -73,6 +74,7 @@ class Transaction(Base):
             'asset_type': self.asset_type,
             'ticker': self.ticker,
             'market': self.market,
+            'transaction_type': self.transaction_type,
             'purchase_date': self.purchase_date.strftime('%Y-%m-%d') if self.purchase_date else None,
             'purchase_price': float(self.purchase_price) if self.purchase_price else None,
             'quantity': float(self.quantity) if self.quantity else None,
