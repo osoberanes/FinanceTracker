@@ -1,205 +1,148 @@
-# Portfolio Tracker
+# FinanceTracker
 
-Una aplicación web para seguimiento de cartera de inversiones en acciones con análisis en tiempo real, visualización de evolución temporal y consolidación de posiciones.
+Portfolio tracker con análisis Swensen para acciones mexicanas, estadounidenses y criptomonedas.
 
 ## Características
 
-- **Ingreso de Transacciones**: Formulario para agregar compras de acciones con validación en tiempo real
-- **Histórico de Transacciones**: Tabla detallada con todas las transacciones y valores actuales
-- **Posiciones Consolidadas**: Agrupación automática por ticker con precio promedio ponderado
-- **Gráfico de Evolución**: Visualización interactiva del crecimiento de la cartera en el tiempo
-- **KPIs en Tiempo Real**: Métricas clave como total invertido, valor actual, ganancias/pérdidas
-- **Actualización Automática**: Precios de acciones actualizados desde Yahoo Finance
+### Core
+- **Multi-activo**: Acciones MX (.MX), acciones US, y 5 criptomonedas (BTC, ETH, SOL, XRP, PAXG)
+- **Precios en tiempo real**: Yahoo Finance para acciones, CryptoCompare para crypto
+- **Conversión automática**: USD → MXN para consolidación
+- **Sistema de custodios**: GBM, Bitso, Interactive Brokers, etc.
+
+### Análisis Swensen
+- **10 clases de activos**: Acciones MX, US, Internacionales, Emergentes, FIBRAs, CETES, Bonos, UDIBONOS, Oro, Crypto
+- **Modelo personalizable**: Ajusta los porcentajes objetivo
+- **Recomendaciones de rebalanceo**: Qué comprar para alcanzar tu modelo ideal
+- **Calculadora de inversión**: Distribuye nuevos aportes según tu modelo
+
+### Visualización
+- **Dashboard interactivo**: KPIs, evolución temporal, distribución por clase
+- **Gráficos Plotly**: Pie charts, líneas de evolución, comparativos
+- **Selector de rango**: 1 año, 3 años, 5 años, todo el historial
 
 ## Stack Tecnológico
 
-- **Backend**: Python 3.9+, Flask, SQLAlchemy
-- **Base de Datos**: SQLite
-- **APIs Externas**: yfinance (Yahoo Finance)
-- **Análisis de Datos**: Pandas
-- **Frontend**: HTML5, CSS3, JavaScript (Vanilla)
-- **UI Framework**: Bootstrap 5
-- **Gráficos**: Plotly.js
+| Componente | Tecnología |
+|------------|------------|
+| Backend | Python 3.11, Flask |
+| Base de datos | SQLite |
+| APIs | yfinance, CryptoCompare |
+| Frontend | Bootstrap 5, Plotly.js |
+| Deployment | Render.com |
 
-## Requisitos Previos
+## Instalación Local
 
-- Python 3.9 o superior
-- pip (gestor de paquetes de Python)
+```bash
+# Clonar repositorio
+git clone https://github.com/osoberanes/FinanceTracker.git
+cd FinanceTracker
 
-## Instalación
+# Crear entorno virtual
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
 
-1. **Clonar o navegar al directorio del proyecto**
-   ```bash
-   cd FinanceTracker
-   ```
+# Instalar dependencias
+pip install -r requirements.txt
 
-2. **Crear un entorno virtual (recomendado)**
-   ```bash
-   python -m venv venv
+# Ejecutar
+python app.py
+```
 
-   # En Linux/Mac
-   source venv/bin/activate
+Abrir http://localhost:5000
 
-   # En Windows
-   venv\Scripts\activate
-   ```
+## Variables de Entorno
 
-3. **Instalar dependencias**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## Ejecución
-
-1. **Iniciar la aplicación**
-   ```bash
-   python app.py
-   ```
-
-2. **Abrir navegador**
-   ```
-   http://localhost:5000
-   ```
-
-3. **Detener el servidor**
-   ```
-   Presionar CTRL+C en la terminal
-   ```
-
-## Primera Vez
-
-- La base de datos SQLite (`portfolio.db`) se crea automáticamente al iniciar la aplicación
-- No se requiere configuración adicional
-- Comenzar agregando transacciones mediante el formulario
-
-## Uso
-
-### Agregar una Transacción
-
-1. Completar el formulario en la parte superior:
-   - **Ticker**: Símbolo de la acción (ej: AAPL, MSFT, GOOGL)
-   - **Fecha de Compra**: Fecha de la operación (no puede ser futura)
-   - **Precio de Compra**: Precio unitario pagado
-   - **Cantidad**: Número de acciones compradas
-
-2. Hacer clic en "Agregar"
-
-3. El sistema validará que el ticker exista en Yahoo Finance antes de guardar
-
-### Visualizar el Dashboard
-
-- **KPIs**: Resumen general en la parte superior
-- **Gráfico**: Evolución del valor de la cartera desde la primera compra
-- **Posiciones Consolidadas**: Vista agrupada por ticker con métricas consolidadas
-- **Histórico**: Todas las transacciones con valores actuales
-
-### Interpretación de Colores
-
-- **Verde**: Ganancias positivas
-- **Rojo**: Pérdidas
-- **Gris**: Sin datos disponibles
+| Variable | Descripción | Requerida |
+|----------|-------------|-----------|
+| `CRYPTOCOMPARE_API_KEY` | API key de CryptoCompare | Sí (para crypto) |
+| `LOAD_SAMPLE_DATA` | Cargar datos demo (`true`/`false`) | No |
+| `PORT` | Puerto del servidor | No (default: 5000) |
 
 ## Estructura del Proyecto
 
 ```
 FinanceTracker/
-├── app.py                 # Aplicación Flask principal con rutas y API
-├── models.py              # Modelos SQLAlchemy (tabla transactions)
-├── database.py            # Configuración y conexión a SQLite
-├── utils.py               # Funciones auxiliares (precios, cálculos)
-├── requirements.txt       # Dependencias Python
-├── portfolio.db           # Base de datos SQLite (se crea automáticamente)
-├── README.md              # Este archivo
+├── app.py                  # Flask app principal + endpoints API
+├── models.py               # Modelos SQLAlchemy
+├── database.py             # Inicialización BD + datos demo
+├── utils.py                # Precios de acciones (yfinance)
+├── utils_classification.py # Sistema Swensen (10 clases)
+├── crypto_utils.py         # Precios crypto (CryptoCompare)
+├── requirements.txt        # Dependencias Python
+├── render.yaml             # Configuración Render.com
+├── .python-version         # Python 3.11.9
 ├── static/
-│   ├── css/
-│   │   └── style.css     # Estilos personalizados
-│   └── js/
-│       └── main.js       # Lógica frontend (AJAX, gráficos, tablas)
+│   ├── css/style.css
+│   └── js/main.js, settings.js, analysis.js
 └── templates/
-    ├── base.html         # Template base con navbar y estructura
-    └── index.html        # Dashboard principal
+    ├── base.html
+    ├── index.html          # Dashboard
+    ├── settings.html       # Configuración
+    └── analysis.html       # Análisis Swensen
 ```
 
 ## API Endpoints
 
-La aplicación expone los siguientes endpoints REST:
+### Transacciones
+- `GET /api/transactions` - Listar todas
+- `POST /api/transactions` - Crear nueva
+- `DELETE /api/transactions/<id>` - Eliminar
 
-- `GET /` - Dashboard principal (HTML)
-- `GET /api/transactions` - Obtener todas las transacciones con datos enriquecidos
-- `POST /api/transactions` - Crear nueva transacción
-- `GET /api/portfolio/summary` - Resumen consolidado por ticker
-- `GET /api/portfolio/history` - Datos históricos para el gráfico
+### Portfolio
+- `GET /api/portfolio/summary` - Resumen consolidado
+- `GET /api/portfolio/history?range=1y|3y|5y|all` - Evolución temporal
+- `GET /api/portfolio/by-custodian` - Agrupado por custodio
+- `GET /api/portfolio/by-asset-class` - Agrupado por clase Swensen
 
-## Funcionalidades Futuras (Preparadas en BD)
+### Análisis
+- `GET /api/portfolio/rebalancing-recommendations` - Recomendaciones
+- `POST /api/investment-calculator` - Calcular distribución de inversión
 
-La base de datos está diseñada para futuras extensiones:
+### Configuración
+- `GET/POST /api/custodians` - Gestión de custodios
+- `GET/POST /api/swensen-config` - Modelo Swensen personalizado
+- `GET/POST /api/classifications` - Clasificación de activos
 
-- Múltiples tipos de activos (crypto, CETES, bonos)
-- Soporte multi-moneda (USD, MXN)
-- Registro de custodios (GBM, Binance, etc.)
-- Comisiones por transacción
-- Notas personalizadas
-- Edición y eliminación de transacciones
-- Registro de ventas
+## Clases de Activos (Swensen)
 
-## Notas Técnicas
+| Clase | Emoji | Meta Default |
+|-------|-------|--------------|
+| Acciones México | 🇲🇽 | 15% |
+| Acciones USA | 🇺🇸 | 30% |
+| Acciones Internacionales | 🌍 | 15% |
+| Mercados Emergentes | 🌎 | 5% |
+| FIBRAs | 🏢 | 20% |
+| CETES | 🏦 | 5% |
+| Bonos Gubernamentales | 📜 | 5% |
+| UDIBONOS | 🛡️ | 5% |
+| Oro y Materias Primas | 🥇 | 0% |
+| Criptomonedas | 🪙 | 0% |
 
-### Caché de Precios
+## Deployment en Render
 
-- Los precios actuales se cachean por 5 minutos para reducir llamadas a la API
-- Los precios históricos se cachean durante toda la sesión
+El proyecto está configurado para deploy automático en Render.com:
 
-### Rate Limiting
+1. Conectar repositorio GitHub
+2. Configurar variables de entorno:
+   - `CRYPTOCOMPARE_API_KEY`
+   - `LOAD_SAMPLE_DATA=true` (para demo)
+3. Deploy automático en cada push a `main`
 
-- Yahoo Finance tiene límites de ~2000 requests/hora
-- El caché mitiga este límite
+## Roadmap
 
-### Rendimiento del Gráfico
-
-- Para rangos mayores a 6 meses, se muestrea semanalmente
-- Optimiza tiempos de carga sin perder fidelidad visual
-
-### Validaciones
-
-- Ticker debe existir en Yahoo Finance
-- Fechas no pueden ser futuras
-- Precios y cantidades deben ser positivos
-- Todos los campos son obligatorios
-
-## Solución de Problemas
-
-### Error: "Invalid ticker"
-
-- Verificar que el símbolo sea correcto (ej: AAPL no APL)
-- Algunos tickers requieren sufijos (ej: BRK.B para Berkshire Hathaway)
-
-### Error: "No data returned"
-
-- El ticker puede estar delisted o suspendido
-- Verificar conectividad a internet
-
-### El gráfico no se muestra
-
-- Asegurarse de tener al menos una transacción
-- Verificar consola del navegador para errores JavaScript
-
-### Precios no se actualizan
-
-- Yahoo Finance puede tener delays de ~15 minutos
-- Mercados cerrados muestran último precio de cierre
-
-## Contribuciones
-
-Este proyecto es de código abierto. Sugerencias y mejoras son bienvenidas.
+- [ ] Sistema de ventas (registrar ventas de activos)
+- [ ] Edición de transacciones
+- [ ] Validación inteligente de decimales (enteros para acciones, decimales para crypto)
+- [ ] Tracking de dividendos
+- [ ] Comparación con benchmarks (IPC, S&P 500)
+- [ ] Sistema de usuarios
 
 ## Licencia
 
 MIT License
 
-## Autor
-
-Desarrollado con Flask, Python y las mejores prácticas de desarrollo web.
-
 ---
 
-**Nota**: Esta aplicación utiliza datos de Yahoo Finance mediante la librería yfinance. Los datos son solo para fines informativos y no constituyen asesoría financiera.
+**Nota**: Los datos de precios son solo informativos. No constituyen asesoría financiera.
