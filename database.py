@@ -31,6 +31,7 @@ def init_db():
 
     # Intentar cargar datos de ejemplo (solo si LOAD_SAMPLE_DATA=true)
     load_sample_data()
+    load_sample_dividends()
 
 
 def migrate_add_market_column():
@@ -423,6 +424,107 @@ def load_sample_data():
 
     except Exception as e:
         logger.error(f"Error loading sample data: {str(e)}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def load_sample_dividends():
+    """
+    Carga dividendos de ejemplo para demo/testing.
+
+    Control de activación:
+    - PRODUCCIÓN: No configurar LOAD_SAMPLE_DATA (o =false) → Sin dividendos de ejemplo
+    - DEMO/TEST: Configurar LOAD_SAMPLE_DATA=true → Carga dividendos de ejemplo
+
+    Solo carga datos si:
+    1. LOAD_SAMPLE_DATA=true en variables de entorno
+    2. La base de datos no tiene dividendos todavía
+    """
+    import os
+    from models import Dividend
+    from datetime import date
+
+    # Verificar variable de entorno
+    load_samples = os.environ.get('LOAD_SAMPLE_DATA', 'false').lower() == 'true'
+
+    if not load_samples:
+        print("ℹ️  LOAD_SAMPLE_DATA no está activado, saltando dividendos de ejemplo")
+        return
+
+    # Verificar si ya hay dividendos
+    db = SessionLocal()
+    try:
+        existing = db.query(Dividend).first()
+        if existing:
+            print("ℹ️  Base de datos ya tiene dividendos, saltando carga de ejemplos")
+            return
+
+        print("💰 Cargando dividendos de ejemplo (LOAD_SAMPLE_DATA=true)...")
+
+        sample_dividends = [
+            {
+                'ticker': 'FUNO11.MX',
+                'dividend_type': 'dividend',
+                'payment_date': date(2024, 3, 15),
+                'gross_amount': 180.00,
+                'net_amount': 150.00,
+                'notes': 'Dividendo Q1 2024'
+            },
+            {
+                'ticker': 'FUNO11.MX',
+                'dividend_type': 'dividend',
+                'payment_date': date(2024, 6, 15),
+                'gross_amount': 175.00,
+                'net_amount': 145.00,
+                'notes': 'Dividendo Q2 2024'
+            },
+            {
+                'ticker': 'FUNO11.MX',
+                'dividend_type': 'dividend',
+                'payment_date': date(2024, 9, 15),
+                'gross_amount': 170.00,
+                'net_amount': 141.00,
+                'notes': 'Dividendo Q3 2024'
+            },
+            {
+                'ticker': 'ETH',
+                'dividend_type': 'staking',
+                'payment_date': date(2024, 4, 1),
+                'net_amount': 85.00,
+                'notes': 'Staking rewards Marzo'
+            },
+            {
+                'ticker': 'SOL',
+                'dividend_type': 'staking',
+                'payment_date': date(2024, 4, 1),
+                'net_amount': 45.00,
+                'notes': 'Staking rewards Marzo'
+            },
+            {
+                'ticker': 'VOO.MX',
+                'dividend_type': 'dividend',
+                'payment_date': date(2024, 3, 20),
+                'gross_amount': 92.00,
+                'net_amount': 76.00,
+                'notes': 'Dividendo trimestral VOO'
+            },
+        ]
+
+        count = 0
+        for div_data in sample_dividends:
+            try:
+                dividend = Dividend(**div_data)
+                db.add(dividend)
+                count += 1
+            except Exception as e:
+                print(f"⚠️  Error creando dividendo {div_data.get('ticker')}: {e}")
+
+        db.commit()
+        print(f"✅ {count} dividendos de ejemplo cargados exitosamente")
+
+    except Exception as e:
+        logger.error(f"Error loading sample dividends: {str(e)}")
         db.rollback()
     finally:
         db.close()

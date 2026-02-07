@@ -2,7 +2,7 @@
 
 from flask import Flask, render_template, request, jsonify
 from database import init_db, get_db, close_db
-from models import Transaction, Custodian, SwensenConfig
+from models import Transaction, Custodian, SwensenConfig, Dividend
 from utils import (
     get_current_price,
     get_historical_prices,
@@ -120,6 +120,12 @@ def shutdown_session(exception=None):
 def index():
     """Render main dashboard."""
     return render_template('index.html')
+
+
+@app.route('/dividends')
+def dividends_page():
+    """Render dividends tracking page."""
+    return render_template('dividends.html')
 
 
 @app.route('/api/transactions', methods=['GET'])
@@ -1716,6 +1722,351 @@ def get_asset_class_colors_api():
 
     except Exception as e:
         logger.error(f"Error obteniendo colores: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# API DE DIVIDENDOS
+# ============================================
+
+@app.route('/api/dividends', methods=['GET'])
+def get_dividends():
+    """
+    Obtiene todos los dividendos con filtros opcionales.
+
+    Query params:
+        ticker: Filtrar por ticker
+        type: Filtrar por tipo (dividend, coupon, staking)
+        year: Filtrar por año
+    """
+    try:
+        db = get_db()
+        query = db.query(Dividend).order_by(Dividend.payment_date.desc())
+
+        # Aplicar filtros
+        ticker = request.args.get('ticker')
+        div_type = request.args.get('type')
+        year = request.args.get('year', type=int)
+
+        if ticker:
+            query = query.filter(Dividend.ticker == ticker.upper())
+        if div_type:
+            query = query.filter(Dividend.dividend_type == div_type)
+        if year:
+            query = query.filter(
+                func.extract('year', Dividend.payment_date) == year
+            )
+
+        dividends = query.all()
+
+        return jsonify([d.to_dict() for d in dividends])
+
+    except Exception as e:
+        logger.error(f"Error obteniendo dividendos: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividends', methods=['POST'])
+def create_dividend():
+    """
+    Registra un nuevo dividendo/cupón/staking.
+
+    Expected JSON:
+    {
+        "ticker": "FUNO11.MX",
+        "dividend_type": "dividend",  // dividend, coupon, staking
+        "payment_date": "2024-03-15",
+        "net_amount": 150.00,
+        "gross_amount": 180.00,  // opcional
+        "notes": "Dividendo Q1 2024"  // opcional
+    }
+    """
+    try:
+        db = get_db()
+        data = request.get_json()
+
+        # Validar campos requeridos
+        required = ['ticker', 'dividend_type', 'payment_date', 'net_amount']
+        for field in required:
+            if field not in data:
+                return jsonify({'error': f'Campo requerido: {field}'}), 400
+
+        # Validar tipo
+        valid_types = ['dividend', 'coupon', 'staking']
+        if data['dividend_type'] not in valid_types:
+            return jsonify({'error': f'Tipo inválido. Use: {valid_types}'}), 400
+
+        # Validar fecha
+        try:
+            payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Formato de fecha inválido. Use YYYY-MM-DD'}), 400
+
+        # Calcular shares_at_payment y dividend_per_share automáticamente
+        ticker = data['ticker'].upper()
+        shares_at_payment = None
+        dividend_per_share = None
+
+        # Obtener cantidad de acciones a la fecha del pago
+        transactions = db.query(Transaction).filter(
+            Transaction.ticker == ticker,
+            Transaction.purchase_date <= payment_date
+        ).all()
+
+        if transactions:
+            total_shares = sum(
+                float(t.quantity) if t.transaction_type == 'buy' else -float(t.quantity)
+                for t in transactions
+            )
+            if total_shares > 0:
+                shares_at_payment = total_shares
+                dividend_per_share = float(data['net_amount']) / total_shares
+
+        dividend = Dividend(
+            ticker=ticker,
+            dividend_type=data['dividend_type'],
+            payment_date=payment_date,
+            gross_amount=data.get('gross_amount'),
+            net_amount=data['net_amount'],
+            currency=data.get('currency', 'MXN'),
+            shares_at_payment=shares_at_payment,
+            dividend_per_share=dividend_per_share,
+            notes=data.get('notes')
+        )
+
+        db.add(dividend)
+        db.commit()
+
+        logger.info(f"Dividendo registrado: {ticker} - ${data['net_amount']} MXN")
+
+        return jsonify({
+            'message': 'Dividendo registrado exitosamente',
+            'dividend': dividend.to_dict()
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error registrando dividendo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividends/<int:id>', methods=['PUT'])
+def update_dividend(id):
+    """Actualiza un dividendo existente."""
+    try:
+        db = get_db()
+        dividend = db.query(Dividend).filter(Dividend.id == id).first()
+
+        if not dividend:
+            return jsonify({'error': 'Dividendo no encontrado'}), 404
+
+        data = request.get_json()
+
+        if 'ticker' in data:
+            dividend.ticker = data['ticker'].upper()
+        if 'dividend_type' in data:
+            dividend.dividend_type = data['dividend_type']
+        if 'payment_date' in data:
+            dividend.payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date()
+        if 'gross_amount' in data:
+            dividend.gross_amount = data['gross_amount']
+        if 'net_amount' in data:
+            dividend.net_amount = data['net_amount']
+        if 'notes' in data:
+            dividend.notes = data['notes']
+
+        dividend.updated_at = datetime.utcnow()
+        db.commit()
+
+        return jsonify({
+            'message': 'Dividendo actualizado',
+            'dividend': dividend.to_dict()
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error actualizando dividendo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividends/<int:id>', methods=['DELETE'])
+def delete_dividend(id):
+    """Elimina un dividendo."""
+    try:
+        db = get_db()
+        dividend = db.query(Dividend).filter(Dividend.id == id).first()
+
+        if not dividend:
+            return jsonify({'error': 'Dividendo no encontrado'}), 404
+
+        db.delete(dividend)
+        db.commit()
+
+        return jsonify({'message': 'Dividendo eliminado'})
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error eliminando dividendo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# REPORTES DE DIVIDENDOS
+# ============================================
+
+@app.route('/api/dividends/summary', methods=['GET'])
+def get_dividends_summary():
+    """
+    Resumen de dividendos con totales y yield.
+
+    Query params:
+        year: Filtrar por año (default: año actual)
+    """
+    try:
+        db = get_db()
+        year = request.args.get('year', datetime.now().year, type=int)
+
+        # Total de dividendos del año
+        dividends = db.query(Dividend).filter(
+            func.extract('year', Dividend.payment_date) == year
+        ).all()
+
+        total_dividends = sum(float(d.net_amount) for d in dividends)
+
+        # Por tipo
+        by_type = {}
+        for div_type in ['dividend', 'coupon', 'staking']:
+            type_total = sum(
+                float(d.net_amount) for d in dividends
+                if d.dividend_type == div_type
+            )
+            by_type[div_type] = round(type_total, 2)
+
+        # Por mes
+        by_month = {}
+        for d in dividends:
+            month_key = d.payment_date.strftime('%Y-%m')
+            by_month[month_key] = by_month.get(month_key, 0) + float(d.net_amount)
+
+        # Ordenar meses
+        by_month = {k: round(v, 2) for k, v in sorted(by_month.items())}
+
+        # Por ticker
+        by_ticker = {}
+        for d in dividends:
+            by_ticker[d.ticker] = by_ticker.get(d.ticker, 0) + float(d.net_amount)
+        by_ticker = {k: round(v, 2) for k, v in sorted(by_ticker.items(), key=lambda x: -x[1])}
+
+        # Calcular yield del portfolio
+        # Obtener valor actual del portfolio
+        transactions = db.query(Transaction).all()
+        portfolio_value = 0
+
+        for t in transactions:
+            qty = float(t.quantity)
+            if t.transaction_type == 'sell':
+                qty = -qty
+
+            current_price = get_current_price(t.ticker)
+            if current_price:
+                portfolio_value += current_price * qty
+
+        dividend_yield = (total_dividends / portfolio_value * 100) if portfolio_value > 0 else 0
+
+        return jsonify({
+            'year': year,
+            'total_dividends': round(total_dividends, 2),
+            'dividend_yield_percent': round(dividend_yield, 2),
+            'portfolio_value': round(portfolio_value, 2),
+            'by_type': by_type,
+            'by_month': by_month,
+            'by_ticker': by_ticker,
+            'count': len(dividends)
+        })
+
+    except Exception as e:
+        logger.error(f"Error en resumen de dividendos: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividends/expected-yield', methods=['GET'])
+def get_expected_yield():
+    """
+    Calcula yield esperado basado en datos públicos (solo referencia).
+    Usa datos de yfinance para estimar dividendos futuros.
+    """
+    try:
+        db = get_db()
+        import yfinance as yf
+
+        # Obtener posiciones actuales
+        transactions = db.query(Transaction).all()
+
+        holdings = {}
+        for t in transactions:
+            ticker = t.ticker
+            qty = float(t.quantity)
+            if t.transaction_type == 'sell':
+                qty = -qty
+
+            if ticker not in holdings:
+                holdings[ticker] = {'quantity': 0, 'value': 0}
+            holdings[ticker]['quantity'] += qty
+
+        # Calcular yield esperado por ticker
+        expected_dividends = []
+        total_expected = 0
+        total_value = 0
+
+        for ticker, data in holdings.items():
+            if data['quantity'] <= 0:
+                continue
+
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+
+                # Obtener dividend yield de yfinance
+                div_yield = info.get('dividendYield', 0) or 0
+                current_price = info.get('currentPrice') or info.get('regularMarketPrice', 0)
+                annual_dividend = info.get('dividendRate', 0) or 0
+
+                position_value = current_price * data['quantity'] if current_price else 0
+                expected_annual = annual_dividend * data['quantity'] if annual_dividend else 0
+
+                total_value += position_value
+                total_expected += expected_annual
+
+                if position_value > 0:
+                    expected_dividends.append({
+                        'ticker': ticker,
+                        'quantity': round(data['quantity'], 4),
+                        'current_price': round(current_price, 2) if current_price else None,
+                        'position_value': round(position_value, 2),
+                        'dividend_yield': round(div_yield * 100, 2) if div_yield else 0,
+                        'annual_dividend_per_share': round(annual_dividend, 4) if annual_dividend else 0,
+                        'expected_annual': round(expected_annual, 2)
+                    })
+
+            except Exception as e:
+                logger.warning(f"No se pudo obtener yield de {ticker}: {e}")
+                continue
+
+        # Ordenar por expected_annual
+        expected_dividends.sort(key=lambda x: -x['expected_annual'])
+
+        portfolio_yield = (total_expected / total_value * 100) if total_value > 0 else 0
+
+        return jsonify({
+            'portfolio_value': round(total_value, 2),
+            'total_expected_annual': round(total_expected, 2),
+            'portfolio_yield_percent': round(portfolio_yield, 2),
+            'by_ticker': expected_dividends,
+            'note': 'Datos de referencia basados en información pública. El monto real puede variar por impuestos y tipo de cambio.'
+        })
+
+    except Exception as e:
+        logger.error(f"Error calculando yield esperado: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

@@ -42,6 +42,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="/dividends">
+                            <i class="bi bi-cash-coin"></i> Dividendos
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="/settings">
                             <i class="bi bi-gear"></i> Ajustes
                         </a>
@@ -69,6 +74,7 @@
     <!-- Custom JavaScript -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 
+    {% block scripts %}{% endblock %}
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -120,3 +120,50 @@ class SwensenConfig(Base):
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None
         }
+
+
+class Dividend(Base):
+    """Modelo para dividendos, cupones y staking rewards."""
+    __tablename__ = 'dividends'
+
+    id = Column(Integer, primary_key=True)
+
+    # Relación con transacción/ticker
+    ticker = Column(String(20), nullable=False)
+
+    # Tipo de ingreso pasivo
+    dividend_type = Column(String(20), nullable=False)  # 'dividend', 'coupon', 'staking'
+
+    # Datos del pago
+    payment_date = Column(Date, nullable=False)
+    gross_amount = Column(Numeric(15, 2), nullable=True)  # Monto bruto (opcional, referencia)
+    net_amount = Column(Numeric(15, 2), nullable=False)   # Monto neto recibido (después de impuestos)
+    currency = Column(String(3), default='MXN')
+
+    # Información adicional
+    shares_at_payment = Column(Numeric(15, 8), nullable=True)  # Acciones al momento del pago
+    dividend_per_share = Column(Numeric(15, 6), nullable=True)  # Dividendo por acción
+
+    # Metadata
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'ticker': self.ticker,
+            'dividend_type': self.dividend_type,
+            'payment_date': self.payment_date.isoformat() if self.payment_date else None,
+            'gross_amount': float(self.gross_amount) if self.gross_amount else None,
+            'net_amount': float(self.net_amount) if self.net_amount else None,
+            'currency': self.currency,
+            'shares_at_payment': float(self.shares_at_payment) if self.shares_at_payment else None,
+            'dividend_per_share': float(self.dividend_per_share) if self.dividend_per_share else None,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    def __repr__(self):
+        return f"<Dividend(ticker='{self.ticker}', type='{self.dividend_type}', amount={self.net_amount})>"

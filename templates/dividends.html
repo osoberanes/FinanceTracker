@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}Dividendos - FinanceTracker{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>💰 Tracking de Dividendos</h2>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDividendModal">
+            <i class="bi bi-plus-lg"></i> Registrar Dividendo
+        </button>
+    </div>
+
+    <!-- Resumen Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h6 class="card-title">Total Recibido (Año)</h6>
+                    <h3 id="total-dividends">$0.00</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h6 class="card-title">Yield del Portfolio</h6>
+                    <h3 id="dividend-yield">0.00%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h6 class="card-title">Yield Esperado (Ref.)</h6>
+                    <h3 id="expected-yield">0.00%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-secondary text-white">
+                <div class="card-body">
+                    <h6 class="card-title">Pagos Registrados</h6>
+                    <h3 id="dividend-count">0</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs mb-4" id="dividendTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" id="by-month-tab" data-bs-toggle="tab" data-bs-target="#by-month">
+                📅 Por Mes
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="by-ticker-tab" data-bs-toggle="tab" data-bs-target="#by-ticker">
+                📊 Por Ticker
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history">
+                📋 Historial
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <!-- Por Mes -->
+        <div class="tab-pane fade show active" id="by-month">
+            <div class="card">
+                <div class="card-body">
+                    <div id="chart-by-month" style="height: 400px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Por Ticker -->
+        <div class="tab-pane fade" id="by-ticker">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Dividendos Recibidos por Ticker</div>
+                        <div class="card-body">
+                            <div id="chart-by-ticker" style="height: 350px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">Detalle por Ticker</div>
+                        <div class="card-body">
+                            <table class="table table-sm" id="table-by-ticker">
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th class="text-end">Total Recibido</th>
+                                        <th class="text-end">% del Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historial -->
+        <div class="tab-pane fade" id="history">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="dividends-table">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Ticker</th>
+                                    <th>Tipo</th>
+                                    <th class="text-end">Monto Neto</th>
+                                    <th>Notas</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Agregar Dividendo -->
+<div class="modal fade" id="addDividendModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Registrar Dividendo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="dividend-form">
+                    <div class="mb-3">
+                        <label class="form-label">Ticker</label>
+                        <select class="form-select" id="dividend-ticker" name="ticker" required>
+                            <option value="">Seleccionar...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" id="dividend-type" name="dividend_type" required>
+                            <option value="dividend">Dividendo (Acciones)</option>
+                            <option value="coupon">Cupón (Bonos/CETES)</option>
+                            <option value="staking">Staking (Crypto)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Fecha de Pago</label>
+                        <input type="date" class="form-control" id="dividend-date" name="payment_date" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Bruto (opcional)</label>
+                            <input type="number" step="0.01" class="form-control" id="dividend-gross" name="gross_amount" placeholder="Antes de impuestos">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Neto (recibido)</label>
+                            <input type="number" step="0.01" class="form-control" id="dividend-net" name="net_amount" required placeholder="Después de impuestos">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notas (opcional)</label>
+                        <input type="text" class="form-control" id="dividend-notes" name="notes" placeholder="Ej: Dividendo Q1 2024">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="saveDividend()">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Dividendo -->
+<div class="modal fade" id="editDividendModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Editar Dividendo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="edit-dividend-form">
+                    <input type="hidden" id="edit-dividend-id">
+                    <div class="mb-3">
+                        <label class="form-label">Ticker</label>
+                        <input type="text" class="form-control" id="edit-dividend-ticker" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" id="edit-dividend-type" name="dividend_type">
+                            <option value="dividend">Dividendo (Acciones)</option>
+                            <option value="coupon">Cupón (Bonos/CETES)</option>
+                            <option value="staking">Staking (Crypto)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Fecha de Pago</label>
+                        <input type="date" class="form-control" id="edit-dividend-date" name="payment_date">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Bruto</label>
+                            <input type="number" step="0.01" class="form-control" id="edit-dividend-gross">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Neto</label>
+                            <input type="number" step="0.01" class="form-control" id="edit-dividend-net">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Notas</label>
+                        <input type="text" class="form-control" id="edit-dividend-notes">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="updateDividend()">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dividends.js') }}"></script>
+{% endblock %}
