@@ -7,9 +7,21 @@
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2>💰 Tracking de Dividendos</h2>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDividendModal">
-            <i class="bi bi-plus-lg"></i> Registrar Dividendo
-        </button>
+        <div>
+            <button class="btn btn-outline-secondary me-2" onclick="syncDividends()" id="sync-btn">
+                <i class="bi bi-arrow-repeat"></i> Sincronizar
+            </button>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDividendModal">
+                <i class="bi bi-plus-lg"></i> Registrar Manual
+            </button>
+        </div>
+    </div>
+
+    <!-- Alerta de pendientes -->
+    <div id="pending-alert" class="alert alert-warning d-none mb-4">
+        <i class="bi bi-exclamation-triangle"></i>
+        <span id="pending-message"></span>
+        <button class="btn btn-sm btn-warning ms-2" onclick="scrollToPending()">Ver pendientes</button>
     </div>
 
     <!-- Resumen Cards -->
@@ -17,7 +29,7 @@
         <div class="col-md-3">
             <div class="card bg-success text-white">
                 <div class="card-body">
-                    <h6 class="card-title">Total Recibido (Año)</h6>
+                    <h6 class="card-title">Total Confirmado (Año)</h6>
                     <h3 id="total-dividends">$0.00</h3>
                 </div>
             </div>
@@ -39,10 +51,10 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card bg-secondary text-white">
+            <div class="card bg-warning text-dark">
                 <div class="card-body">
-                    <h6 class="card-title">Pagos Registrados</h6>
-                    <h3 id="dividend-count">0</h3>
+                    <h6 class="card-title">Pendientes por Confirmar</h6>
+                    <h3 id="pending-count">0</h3>
                 </div>
             </div>
         </div>
@@ -51,7 +63,12 @@
     <!-- Tabs -->
     <ul class="nav nav-tabs mb-4" id="dividendTabs" role="tablist">
         <li class="nav-item">
-            <button class="nav-link active" id="by-month-tab" data-bs-toggle="tab" data-bs-target="#by-month">
+            <button class="nav-link active" id="history-tab" data-bs-toggle="tab" data-bs-target="#history">
+                📋 Historial
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" id="by-month-tab" data-bs-toggle="tab" data-bs-target="#by-month">
                 📅 Por Mes
             </button>
         </li>
@@ -60,16 +77,36 @@
                 📊 Por Ticker
             </button>
         </li>
-        <li class="nav-item">
-            <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history">
-                📋 Historial
-            </button>
-        </li>
     </ul>
 
     <div class="tab-content">
+        <!-- Historial (ahora primero) -->
+        <div class="tab-pane fade show active" id="history">
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="dividends-table">
+                            <thead>
+                                <tr>
+                                    <th>Estado</th>
+                                    <th>Fecha</th>
+                                    <th>Ticker</th>
+                                    <th>Tipo</th>
+                                    <th class="text-end">Bruto</th>
+                                    <th class="text-end">Neto</th>
+                                    <th>Fuente</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Por Mes -->
-        <div class="tab-pane fade show active" id="by-month">
+        <div class="tab-pane fade" id="by-month">
             <div class="card">
                 <div class="card-body">
                     <div id="chart-by-month" style="height: 400px;"></div>
@@ -82,7 +119,7 @@
             <div class="row">
                 <div class="col-md-6">
                     <div class="card">
-                        <div class="card-header">Dividendos Recibidos por Ticker</div>
+                        <div class="card-header">Dividendos Confirmados por Ticker</div>
                         <div class="card-body">
                             <div id="chart-by-ticker" style="height: 350px;"></div>
                         </div>
@@ -96,7 +133,7 @@
                                 <thead>
                                     <tr>
                                         <th>Ticker</th>
-                                        <th class="text-end">Total Recibido</th>
+                                        <th class="text-end">Total Neto</th>
                                         <th class="text-end">% del Total</th>
                                     </tr>
                                 </thead>
@@ -107,38 +144,58 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
 
-        <!-- Historial -->
-        <div class="tab-pane fade" id="history">
-            <div class="card">
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover" id="dividends-table">
-                            <thead>
-                                <tr>
-                                    <th>Fecha</th>
-                                    <th>Ticker</th>
-                                    <th>Tipo</th>
-                                    <th class="text-end">Monto Neto</th>
-                                    <th>Notas</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
+<!-- Modal Confirmar Dividendo -->
+<div class="modal fade" id="confirmDividendModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">⚠️ Confirmar Dividendo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Ajusta el monto neto real recibido (después de impuestos):</p>
+                <form id="confirm-dividend-form">
+                    <input type="hidden" id="confirm-dividend-id">
+                    <div class="mb-3">
+                        <label class="form-label">Ticker</label>
+                        <input type="text" class="form-control" id="confirm-ticker" readonly>
                     </div>
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label">Fecha de Pago</label>
+                        <input type="text" class="form-control" id="confirm-date" readonly>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Bruto (referencia)</label>
+                            <input type="text" class="form-control" id="confirm-gross" readonly>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Monto Neto (recibido)</label>
+                            <input type="number" step="0.01" class="form-control" id="confirm-net" required>
+                            <small class="text-muted">Ajusta según tu estado de cuenta</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="confirmDividend()">
+                    <i class="bi bi-check-lg"></i> Confirmar
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-<!-- Modal Agregar Dividendo -->
+<!-- Modal Agregar Dividendo Manual -->
 <div class="modal fade" id="addDividendModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Registrar Dividendo</h5>
+                <h5 class="modal-title">Registrar Dividendo Manual</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -164,16 +221,16 @@
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Monto Bruto (opcional)</label>
-                            <input type="number" step="0.01" class="form-control" id="dividend-gross" name="gross_amount" placeholder="Antes de impuestos">
+                            <input type="number" step="0.01" class="form-control" id="dividend-gross" name="gross_amount">
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Monto Neto (recibido)</label>
-                            <input type="number" step="0.01" class="form-control" id="dividend-net" name="net_amount" required placeholder="Después de impuestos">
+                            <input type="number" step="0.01" class="form-control" id="dividend-net" name="net_amount" required>
                         </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Notas (opcional)</label>
-                        <input type="text" class="form-control" id="dividend-notes" name="notes" placeholder="Ej: Dividendo Q1 2024">
+                        <input type="text" class="form-control" id="dividend-notes" name="notes">
                     </div>
                 </form>
             </div>

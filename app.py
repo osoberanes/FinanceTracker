@@ -1831,6 +1831,8 @@ def create_dividend():
             currency=data.get('currency', 'MXN'),
             shares_at_payment=shares_at_payment,
             dividend_per_share=dividend_per_share,
+            is_confirmed=data.get('is_confirmed', True),  # Manuales = confirmados por default
+            source='manual',
             notes=data.get('notes')
         )
 
@@ -1874,6 +1876,8 @@ def update_dividend(id):
             dividend.net_amount = data['net_amount']
         if 'notes' in data:
             dividend.notes = data['notes']
+        if 'is_confirmed' in data:
+            dividend.is_confirmed = data['is_confirmed']
 
         dividend.updated_at = datetime.utcnow()
         db.commit()
@@ -1910,6 +1914,161 @@ def delete_dividend(id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/dividends/sync', methods=['POST'])
+def sync_dividends():
+    """
+    Sincroniza dividendos históricos desde yfinance.
+    Busca dividendos desde la fecha de compra de cada acción.
+    Solo agrega los que no existen en la BD.
+    """
+    try:
+        import yfinance as yf
+        db = get_db()
+
+        # Obtener todas las transacciones de acciones (no crypto)
+        transactions = db.query(Transaction).filter(
+            Transaction.asset_type == 'stock'
+        ).order_by(Transaction.purchase_date).all()
+
+        if not transactions:
+            return jsonify({'message': 'No hay transacciones de acciones', 'synced': 0})
+
+        # Agrupar por ticker con fecha de primera compra
+        ticker_info = {}
+        for t in transactions:
+            ticker = t.ticker
+            if ticker not in ticker_info:
+                ticker_info[ticker] = {
+                    'first_purchase': t.purchase_date,
+                    'transactions': []
+                }
+            ticker_info[ticker]['transactions'].append(t)
+
+        synced_count = 0
+        errors = []
+
+        for ticker, info in ticker_info.items():
+            try:
+                # Obtener historial de dividendos desde yfinance
+                stock = yf.Ticker(ticker)
+                dividends = stock.dividends
+
+                if dividends.empty:
+                    continue
+
+                # Filtrar dividendos desde la fecha de primera compra
+                first_purchase = info['first_purchase']
+
+                for div_date, div_amount in dividends.items():
+                    payment_date = div_date.date()
+
+                    # Solo dividendos después de la primera compra
+                    if payment_date < first_purchase:
+                        continue
+
+                    # Verificar si ya existe en BD
+                    existing = db.query(Dividend).filter(
+                        Dividend.ticker == ticker,
+                        Dividend.payment_date == payment_date
+                    ).first()
+
+                    if existing:
+                        continue  # Ya existe, saltar
+
+                    # Calcular cantidad de acciones a la fecha del dividendo
+                    shares_at_date = 0
+                    for t in info['transactions']:
+                        if t.purchase_date <= payment_date:
+                            qty = float(t.quantity)
+                            if t.transaction_type == 'sell':
+                                qty = -qty
+                            shares_at_date += qty
+
+                    if shares_at_date <= 0:
+                        continue  # No tenía acciones en esa fecha
+
+                    # Calcular monto bruto (dividendo por acción * cantidad)
+                    dividend_per_share = float(div_amount)
+                    gross_amount = dividend_per_share * shares_at_date
+
+                    # Crear registro con estado pendiente
+                    # net_amount = gross_amount por defecto (usuario ajustará)
+                    new_dividend = Dividend(
+                        ticker=ticker,
+                        dividend_type='dividend',
+                        payment_date=payment_date,
+                        gross_amount=round(gross_amount, 2),
+                        net_amount=round(gross_amount, 2),  # Usuario ajustará después
+                        currency='MXN',
+                        shares_at_payment=shares_at_date,
+                        dividend_per_share=dividend_per_share,
+                        is_confirmed=False,  # Pendiente de confirmar
+                        source='yfinance',
+                        notes=f'Sincronizado automáticamente'
+                    )
+
+                    db.add(new_dividend)
+                    synced_count += 1
+
+            except Exception as e:
+                errors.append(f"{ticker}: {str(e)}")
+                logger.warning(f"Error sincronizando {ticker}: {e}")
+                continue
+
+        db.commit()
+
+        logger.info(f"Sincronización completada: {synced_count} dividendos nuevos")
+
+        return jsonify({
+            'message': f'Sincronización completada',
+            'synced': synced_count,
+            'errors': errors if errors else None
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error en sincronización: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/dividends/<int:id>/confirm', methods=['POST'])
+def confirm_dividend(id):
+    """
+    Confirma un dividendo y actualiza el monto neto.
+
+    Expected JSON:
+    {
+        "net_amount": 125.50
+    }
+    """
+    try:
+        db = get_db()
+        dividend = db.query(Dividend).filter(Dividend.id == id).first()
+
+        if not dividend:
+            return jsonify({'error': 'Dividendo no encontrado'}), 404
+
+        data = request.get_json()
+
+        if 'net_amount' in data:
+            dividend.net_amount = float(data['net_amount'])
+
+        dividend.is_confirmed = True
+        dividend.updated_at = datetime.utcnow()
+
+        db.commit()
+
+        return jsonify({
+            'message': 'Dividendo confirmado',
+            'dividend': dividend.to_dict()
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error confirmando dividendo: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================
 # REPORTES DE DIVIDENDOS
 # ============================================
@@ -1931,29 +2090,35 @@ def get_dividends_summary():
             func.extract('year', Dividend.payment_date) == year
         ).all()
 
-        total_dividends = sum(float(d.net_amount) for d in dividends)
+        # Solo contar confirmados para totales reales
+        confirmed_dividends = [d for d in dividends if d.is_confirmed]
+        total_dividends = sum(float(d.net_amount) for d in confirmed_dividends)
 
-        # Por tipo
+        # Conteo de pendientes
+        pending_count = len([d for d in dividends if not d.is_confirmed])
+        pending_amount = sum(float(d.gross_amount or d.net_amount) for d in dividends if not d.is_confirmed)
+
+        # Por tipo (solo confirmados)
         by_type = {}
         for div_type in ['dividend', 'coupon', 'staking']:
             type_total = sum(
-                float(d.net_amount) for d in dividends
+                float(d.net_amount) for d in confirmed_dividends
                 if d.dividend_type == div_type
             )
             by_type[div_type] = round(type_total, 2)
 
-        # Por mes
+        # Por mes (solo confirmados)
         by_month = {}
-        for d in dividends:
+        for d in confirmed_dividends:
             month_key = d.payment_date.strftime('%Y-%m')
             by_month[month_key] = by_month.get(month_key, 0) + float(d.net_amount)
 
         # Ordenar meses
         by_month = {k: round(v, 2) for k, v in sorted(by_month.items())}
 
-        # Por ticker
+        # Por ticker (solo confirmados)
         by_ticker = {}
-        for d in dividends:
+        for d in confirmed_dividends:
             by_ticker[d.ticker] = by_ticker.get(d.ticker, 0) + float(d.net_amount)
         by_ticker = {k: round(v, 2) for k, v in sorted(by_ticker.items(), key=lambda x: -x[1])}
 
@@ -1968,7 +2133,7 @@ def get_dividends_summary():
                 qty = -qty
 
             current_price = get_current_price(t.ticker)
-            if current_price:
+            if current_price and qty > 0:
                 portfolio_value += current_price * qty
 
         dividend_yield = (total_dividends / portfolio_value * 100) if portfolio_value > 0 else 0
@@ -1981,7 +2146,9 @@ def get_dividends_summary():
             'by_type': by_type,
             'by_month': by_month,
             'by_ticker': by_ticker,
-            'count': len(dividends)
+            'count': len(confirmed_dividends),
+            'pending_count': pending_count,
+            'pending_amount': round(pending_amount, 2)
         })
 
     except Exception as e:

@@ -144,6 +144,10 @@ class Dividend(Base):
     shares_at_payment = Column(Numeric(15, 8), nullable=True)  # Acciones al momento del pago
     dividend_per_share = Column(Numeric(15, 6), nullable=True)  # Dividendo por acción
 
+    # Estado de confirmación
+    is_confirmed = Column(Boolean, default=False)  # False = pendiente de ajustar monto neto
+    source = Column(String(20), default='manual')  # 'manual', 'yfinance', 'auto'
+
     # Metadata
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -160,6 +164,8 @@ class Dividend(Base):
             'currency': self.currency,
             'shares_at_payment': float(self.shares_at_payment) if self.shares_at_payment else None,
             'dividend_per_share': float(self.dividend_per_share) if self.dividend_per_share else None,
+            'is_confirmed': self.is_confirmed,
+            'source': self.source,
             'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

@@ -27,6 +27,7 @@ def init_db():
     migrate_add_asset_class_column()
     migrate_add_swensen_config()
     migrate_add_transaction_type_column()
+    migrate_add_dividend_confirmation_fields()
     print(f"Database initialized at: {DATABASE_PATH}")
 
     # Intentar cargar datos de ejemplo (solo si LOAD_SAMPLE_DATA=true)
@@ -317,6 +318,48 @@ def migrate_add_transaction_type_column():
 
     except Exception as e:
         logger.error(f"Error during transaction_type migration: {str(e)}")
+        # Don't raise - allow app to continue even if migration fails
+
+
+def migrate_add_dividend_confirmation_fields():
+    """
+    Migration to add is_confirmed and source columns to dividends table.
+    This is idempotent - safe to run multiple times.
+    """
+    try:
+        with engine.connect() as conn:
+            # Check if columns already exist
+            result = conn.execute(text("PRAGMA table_info(dividends)"))
+            columns = [row[1] for row in result]
+
+            if 'is_confirmed' not in columns:
+                logger.info("Adding 'is_confirmed' column to dividends table")
+                conn.execute(text("ALTER TABLE dividends ADD COLUMN is_confirmed BOOLEAN DEFAULT 0"))
+                conn.commit()
+
+                # Set all existing dividends as confirmed (manual entries)
+                conn.execute(text("UPDATE dividends SET is_confirmed = 1 WHERE is_confirmed IS NULL"))
+                conn.commit()
+
+                logger.info("Migration completed: 'is_confirmed' column added")
+            else:
+                logger.debug("'is_confirmed' column already exists, skipping migration")
+
+            if 'source' not in columns:
+                logger.info("Adding 'source' column to dividends table")
+                conn.execute(text("ALTER TABLE dividends ADD COLUMN source TEXT DEFAULT 'manual'"))
+                conn.commit()
+
+                # Set all existing dividends as manual
+                conn.execute(text("UPDATE dividends SET source = 'manual' WHERE source IS NULL"))
+                conn.commit()
+
+                logger.info("Migration completed: 'source' column added")
+            else:
+                logger.debug("'source' column already exists, skipping migration")
+
+    except Exception as e:
+        logger.error(f"Error during dividend confirmation fields migration: {str(e)}")
         # Don't raise - allow app to continue even if migration fails
 
 
