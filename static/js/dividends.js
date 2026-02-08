@@ -74,6 +74,8 @@ async function loadDividendsSummary() {
         const response = await fetch(`/api/dividends/summary?year=${year}`);
         summaryData = await response.json();
 
+        console.log('Summary data loaded:', summaryData);
+
         // Actualizar cards
         document.getElementById('total-dividends').textContent =
             `$${summaryData.total_dividends.toLocaleString('es-MX', {minimumFractionDigits: 2})}`;
@@ -91,8 +93,9 @@ async function loadDividendsSummary() {
             pendingAlert.classList.add('d-none');
         }
 
-        // Renderizar gráficos si están visibles
+        // Renderizar gráficos - actualizar todos
         renderMonthChart();
+        renderTickerChart();
         renderTickerTable();
 
     } catch (error) {
@@ -263,10 +266,15 @@ function scrollToPending() {
 
 // Renderizar gráfico por mes
 function renderMonthChart() {
-    if (!summaryData || !summaryData.by_month) return;
+    if (!summaryData || !summaryData.by_month) {
+        console.log('No summary data for month chart');
+        return;
+    }
 
     const months = Object.keys(summaryData.by_month);
     const values = Object.values(summaryData.by_month);
+
+    console.log('Rendering month chart:', { months, values, count: months.length });
 
     if (months.length === 0) {
         document.getElementById('chart-by-month').innerHTML =
@@ -294,10 +302,15 @@ function renderMonthChart() {
 
 // Renderizar gráfico por ticker
 function renderTickerChart() {
-    if (!summaryData || !summaryData.by_ticker) return;
+    if (!summaryData || !summaryData.by_ticker) {
+        console.log('No summary data for ticker chart');
+        return;
+    }
 
     const tickers = Object.keys(summaryData.by_ticker);
     const values = Object.values(summaryData.by_ticker);
+
+    console.log('Rendering ticker chart:', { tickers, values, count: tickers.length });
 
     if (tickers.length === 0) {
         document.getElementById('chart-by-ticker').innerHTML =
